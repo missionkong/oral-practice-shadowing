@@ -1,0 +1,8 @@
+streamlit
+SpeechRecognition
+gTTS
+google-generativeai
+numpy
+matplotlib
+scipy
+# pyttsx3 在雲端 Linux 環境較難設定，雲端版建議主要用 Google 線上發音
