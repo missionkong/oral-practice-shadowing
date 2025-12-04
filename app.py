@@ -7,7 +7,6 @@ except:
     pass
 
 import speech_recognition as sr
-import pyttsx3
 from gtts import gTTS
 import tempfile
 import os
@@ -18,10 +17,11 @@ import matplotlib.pyplot as plt
 import google.generativeai as genai
 import ssl
 
-# 2. 忽略 SSL 錯誤 (解決 Windows/公司網路連線問題)
+# 2. 忽略 SSL 錯誤
 ssl._create_default_https_context = ssl._create_unverified_context
 
-# 3. 安全匯入 (防止雲端崩潰)
+# 3. 安全匯入 (這裡才是重點！)
+# 我們把 pyttsx3 的匯入包在 try...except 裡，這樣雲端沒安裝也不會當機
 HAS_OFFLINE_TTS = False
 try:
     import pyttsx3
@@ -29,6 +29,7 @@ try:
 except ImportError:
     HAS_OFFLINE_TTS = False
 
+# 嘗試匯入 librosa
 try:
     import librosa
     HAS_LIBROSA = True
@@ -43,7 +44,6 @@ def inject_custom_css():
         <style>
         .stApp { background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); font-family: 'Microsoft JhengHei', sans-serif; }
         
-        /* 電腦版主閱讀區 (大字) */
         .reading-box { 
             font-size: 26px !important; 
             font-weight: bold; 
@@ -62,14 +62,13 @@ def inject_custom_css():
             padding: 15px; border-radius: 12px; margin-top: 15px; font-size: 18px; 
         }
         
-        /* [關鍵] 手機版跟讀提示卡 (字體較小，位於錄音區上方) */
         .mobile-hint-card {
             background-color: #e3f2fd;
             border: 1px solid #90caf9;
             padding: 12px;
             border-radius: 8px;
             margin-bottom: 10px;
-            font-size: 16px; /* 字體縮小，方便手機閱讀 */
+            font-size: 16px;
             font-weight: 600;
             color: #1565c0;
             line-height: 1.4;
@@ -129,242 +128,3 @@ def plot_and_get_trend(teacher_path, student_path):
             return (valid - np.mean(valid)) / (np.std(valid) + 1e-6)
         
         norm_t = normalize(f0_t)
-        norm_s = normalize(f0_s)
-        if len(norm_t) == 0 or len(norm_s) == 0: return None, 0, 0
-        
-        from scipy.signal import resample
-        norm_s_res = resample(norm_s, len(norm_t))
-        raw_pitch_score = max(0, np.corrcoef(norm_t, norm_s_res)[0, 1]) * 100
-        
-        fig, ax = plt.subplots(figsize=(8, 2))
-        ax.plot(norm_t, label='Teacher', color='#42a5f5', linewidth=2)
-        ax.plot(norm_s_res, label='You', color='#ffa726', linestyle='--', linewidth=2)
-        ax.axis('off')
-        plt.close(fig)
-        
-        return fig, raw_pitch_score, 0
-    except: return None, 0, 0
-
-def get_ai_coach_feedback(api_key, target_text, user_text, score):
-    if not api_key: return "⚠️ 請輸入 API Key"
-    try:
-        genai.configure(api_key=api_key)
-        # [鎖定] Gemini 2.0 Flash
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        prompt = f"""
-        你是一位溫暖的英文老師。
-        目標句子："{target_text}"
-        學生唸出："{user_text}"
-        請給予繁體中文回饋：
-        1. 🌟 亮點讚賞 (唸得好的地方)
-        2. 🔧 具體發音糾正 (指出哪個字唸錯)
-        3. 💪 暖心鼓勵
-        (語氣親切，不要批評)
-        """
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        if "429" in str(e): return "⏳ AI 休息中 (429)，請稍候。"
-        return f"AI 錯誤: {str(e)}"
-
-@st.cache_data(show_spinner=False)
-def get_word_info(api_key, word, sentence):
-    if not api_key: return "⚠️ 請輸入 Key"
-    try:
-        genai.configure(api_key=api_key)
-        # [鎖定] Gemini 2.0 Flash
-        model = genai.GenerativeModel('gemini-2.0-flash')
-        prompt = f"解釋單字 '{word}' 在句子 '{sentence}' 中的意思。格式：🔊[{word}] KK音標\\n🏷️[詞性]\\n💡[繁中意思](簡潔)"
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        if "429" in str(e): return "⏳ 查詢太快 (429)"
-        return "❌ 查詢失敗"
-
-# 發音邏輯
-def speak_google(text, speed=1.0):
-    try:
-        is_slow = speed < 1.0
-        tts = gTTS(text=text, lang='en', slow=is_slow)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as fp:
-            tts.save(fp.name)
-            return fp.name
-    except: return None
-
-def speak_offline(text, speed=1.0):
-    if not HAS_OFFLINE_TTS: return None
-    try:
-        engine = pyttsx3.init()
-        engine.setProperty('rate', int(175 * speed))
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as fp:
-            engine.save_to_file(text, fp.name)
-            engine.runAndWait()
-            return fp.name
-    except: return None
-
-def get_offline_voices():
-    try:
-        engine = pyttsx3.init()
-        voices = engine.getProperty('voices')
-        return {v.name: v.id for v in voices}
-    except: return {}
-
-# ==========================================
-# 2. 主程式
-# ==========================================
-inject_custom_css()
-
-# 初始化 Session
-if 'game_active' not in st.session_state: st.session_state.game_active = False
-if 'sentences' not in st.session_state: st.session_state.sentences = []
-if 'current_index' not in st.session_state: st.session_state.current_index = 0
-if 'current_audio_path' not in st.session_state: st.session_state.current_audio_path = None
-if 'current_word_data' not in st.session_state: st.session_state.current_word_data = None 
-
-# Key 管理
-KEY_FILE = "secret_key.txt"
-if 'saved_api_key' not in st.session_state:
-    if os.path.exists(KEY_FILE):
-        with open(KEY_FILE, "r") as f: st.session_state.saved_api_key = f.read().strip()
-    else: st.session_state.saved_api_key = ""
-
-# --- 側邊欄 ---
-with st.sidebar:
-    st.header("⚙️ 設定")
-    gemini_api_key = st.text_input("Google API Key", value=st.session_state.saved_api_key, type="password")
-    if gemini_api_key != st.session_state.saved_api_key:
-        with open(KEY_FILE, "w") as f: f.write(gemini_api_key)
-        st.session_state.saved_api_key = gemini_api_key
-    
-    st.markdown("---")
-    if HAS_OFFLINE_TTS:
-        tts_mode = st.radio("發音模式", ["☁️ 線上 (Google)", "💻 離線 (Windows)"], index=0)
-    else:
-        st.info("☁️ 雲端模式 (Google 發音)")
-        tts_mode = "☁️ 線上 (Google)"
-        
-    voice_speed = st.slider("語速", 0.5, 1.5, 1.0, 0.1)
-
-# --- 主畫面 ---
-st.title("🎤 AI 英文教練")
-
-if not st.session_state.game_active:
-    st.markdown('<div class="css-card">', unsafe_allow_html=True)
-    input_text = st.text_area("請輸入文章：", value="Technology is changing how we live and work every single day.", height=150)
-    if st.button("🚀 開始練習", type="primary", use_container_width=True):
-        s = split_text_into_sentences(input_text)
-        if s: 
-            st.session_state.sentences = s
-            st.session_state.current_index = 0
-            st.session_state.game_active = True
-            st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-else:
-    # 導航與進度
-    idx = st.session_state.current_index
-    sentences = st.session_state.sentences
-    target_sentence = sentences[idx]
-
-    c1, c2, c3 = st.columns([1, 2, 1])
-    with c1: 
-        if st.button("⬅️ 上一句", disabled=(idx==0), use_container_width=True):
-            st.session_state.current_index -= 1
-            st.session_state.current_audio_path = None
-            st.session_state.current_word_data = None
-            st.rerun()
-    with c2: st.progress((idx+1)/len(sentences), text=f"{idx+1}/{len(sentences)}")
-    with c3:
-        if st.button("下一句 ➡️", disabled=(idx==len(sentences)-1), use_container_width=True):
-            st.session_state.current_index += 1
-            st.session_state.current_audio_path = None
-            st.session_state.current_word_data = None
-            st.rerun()
-
-    col_L, col_R = st.columns([1.5, 1], gap="large")
-
-    # === 左邊：閱讀與查單字 ===
-    with col_L:
-        st.markdown(f'<div class="reading-box">{target_sentence}</div>', unsafe_allow_html=True)
-        
-        # 單字按鈕
-        words = re.findall(r"\b\w+\b", target_sentence)
-        cols = st.columns(5)
-        for i, word in enumerate(words):
-            if cols[i % 5].button(word, key=f"w_{idx}_{i}"):
-                if gemini_api_key:
-                    with st.spinner("🔍..."):
-                        # 1. 查義
-                        prompt = f"解釋單字'{word}'在句中意思。格式：🔊[{word}] KK音標\\n🏷️[詞性]\\n💡[繁中意思](簡潔)"
-                        info = get_gemini_response(gemini_api_key, prompt)
-                        info_html = info.replace('\n', '<br>')
-                        
-                        # 2. 發音
-                        w_path = speak_google(word, 1.0)
-                        if not w_path: w_path = speak_offline(word, 1.0)
-                        
-                        st.session_state.current_word_data = (info_html, w_path)
-                else:
-                    st.error("請輸入 Key")
-
-        # 顯示單字查詢結果
-        if st.session_state.current_word_data:
-            info_html, w_path = st.session_state.current_word_data
-            st.markdown(f'<div class="definition-card">{info_html}</div>', unsafe_allow_html=True)
-            if w_path: st.audio(w_path, format='audio/mp3')
-
-        st.markdown("---")
-        st.subheader("🗣️ 整句示範")
-        
-        # 整句發音
-        if st.session_state.current_audio_path is None:
-            path = None
-            if "線上" in tts_mode: 
-                path = speak_google(target_sentence, voice_speed)
-            if not path: 
-                path = speak_offline(target_sentence, voice_speed)
-            st.session_state.current_audio_path = path
-
-        if st.session_state.current_audio_path:
-            st.audio(st.session_state.current_audio_path, format="audio/mp3")
-        else:
-            st.warning("無法生成語音")
-
-    # === 右邊：錄音 ===
-    with col_R:
-        st.subheader("🎙️ 口說挑戰")
-        
-        # [關鍵功能] 手機版跟讀提示：字體縮小，放在錄音鈕正上方
-        st.markdown(f'<div class="mobile-hint-card">📖 跟讀：<br>{target_sentence}</div>', unsafe_allow_html=True)
-        
-        user_audio = st.audio_input("請按錄音鈕開始", key=f"rec_{idx}")
-        
-        if user_audio and st.session_state.current_audio_path:
-            with st.spinner("🤖 分析中..."):
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                    tmp.write(user_audio.read()); user_path = tmp.name
-                
-                u_text = transcribe_audio(user_path)
-                score_text, diff_html = check_similarity_visual(target_sentence, u_text)
-                fig, raw_pitch_score, _ = plot_and_get_trend(st.session_state.current_audio_path, user_path)
-                
-                # 鼓勵制評分
-                adj_pitch = max(60, raw_pitch_score)
-                final_score = (score_text * 0.8) + (adj_pitch * 0.2)
-                
-                feedback = get_ai_coach_feedback(gemini_api_key, target_sentence, u_text, final_score)
-
-            # 結果顯示
-            if final_score >= 80: st.success(f"🎉 太棒了！分數：{final_score:.0f}")
-            else: st.info(f"💪 再試試：{final_score:.0f}")
-            
-            # [關鍵功能] 回放自己
-            st.write("🎧 **回放你的聲音：**")
-            st.audio(user_path, format="audio/wav")
-            
-            st.markdown(f'<div class="ai-feedback-box">{feedback}</div>', unsafe_allow_html=True)
-            
-            tab1, tab2 = st.tabs(["🔤 糾錯", "📈 語調"])
-            with tab1: st.markdown(f'<div class="diff-box">{diff_html}</div>', unsafe_allow_html=True)
-            with tab2: 
-                if fig: st.pyplot(fig)
-                else: st.info("無法分析語調")
