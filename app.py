@@ -14,10 +14,12 @@ import ssl
 # [核心修改] 改用 Vertex AI
 import vertexai
 from vertexai.preview.generative_models import GenerativeModel
+# [新增] 用於處理雲端 Secrets
+from google.oauth2 import service_account
 
 # 1. 設定頁面
 try:
-    st.set_page_config(page_title="AI 英文教練 Pro (Vertex 本機驗證版)", layout="wide", page_icon="🎓")
+    st.set_page_config(page_title="AI 英文教練 Pro (雲端終極版)", layout="wide", page_icon="🎓")
 except:
     pass
 
@@ -42,7 +44,6 @@ except ImportError:
 # 0. 資料存取邏輯
 # ==========================================
 VOCAB_FILE = "vocab_book.json"
-PROJECT_FILE = "google_project_id.txt"
 
 def load_vocab():
     if not os.path.exists(VOCAB_FILE): return []
@@ -64,29 +65,32 @@ def add_word_to_vocab(word, info):
     return True
 
 # ==========================================
-# [核心修改] Vertex AI 初始化 (關鍵：讀取上傳的檔案)
+# [核心修改] Vertex AI 初始化 (自動從 Secrets 讀取)
 # ==========================================
-def init_vertex_ai(project_id, cred_file):
-    # 確保有專案 ID 和憑證檔案物件
-    if not project_id or cred_file is None: return None
+@st.cache_resource(show_spinner=False)
+def init_vertex_ai_from_secrets():
+    """嘗試從 Streamlit Secrets 初始化 Vertex AI"""
     try:
-        # 1. 創造一個暫時的檔案來存 json 內容
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".json", mode='w+', encoding='utf-8') as tmp:
-            # 把上傳檔案的內容寫進去
-            # cred_file 是一個 BytesIO 物件，要 decode 成字串
-            content = cred_file.getvalue().decode("utf-8")
-            tmp.write(content)
-            tmp_cred_path = tmp.name
+        # 檢查 Secrets 是否存在
+        if "gcp_service_account" not in st.secrets:
+            print("Secrets 'gcp_service_account' not found.")
+            return None, "請在 Streamlit Cloud 設定 Secrets。"
+
+        # 從 Secrets 建立憑證物件
+        credentials = service_account.Credentials.from_service_account_info(
+            st.secrets["gcp_service_account"]
+        )
         
-        # 2. 告訴 Google SDK 暫時的憑證檔案在哪裡
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = tmp_cred_path
-        
-        # 3. 初始化 Vertex AI
-        vertexai.init(project=project_id, location="us-central1")
-        return True
+        # 從 Secrets 中獲取 Project ID
+        project_id = st.secrets["gcp_service_account"]["project_id"]
+
+        # 初始化 Vertex AI
+        vertexai.init(project=project_id, location="us-central1", credentials=credentials)
+        print("Vertex AI initialized successfully from Secrets.")
+        return True, "✅ Vertex AI 已連線 (雲端模式)"
     except Exception as e:
-        print(f"Vertex AI Init Error: {e}")
-        return None
+        print(f"Vertex AI Init Error (Secrets): {e}")
+        return None, f"Vertex AI 連線失敗: {e}"
 
 # ==========================================
 # 1. UI 美化
@@ -168,11 +172,11 @@ def plot_and_get_trend(teacher_path, student_path):
         return fig, raw_pitch_score, 0
     except: return None, 0, 0
 
-# [修改] 使用 Vertex AI 的回饋函式 (傳入 cred_file)
-def get_ai_coach_feedback(project_id, cred_file, target_text, user_text, score):
-    if not init_vertex_ai(project_id, cred_file): return "⚠️ 請檢查 Project ID 並一定要上傳憑證 JSON 檔案"
+# [修改] 使用 Vertex AI 的回饋函式
+def get_ai_coach_feedback(target_text, user_text, score):
+    # 確保已初始化
+    if not st.session_state.vertex_ai_ready: return "⚠️ AI 尚未就緒，請檢查 Secrets 設定。"
     try:
-        # 使用最新的 Gemini Pro 模型
         model = GenerativeModel("gemini-1.5-pro-preview-0409")
         prompt = f"""
         你是一位溫暖的英文老師。
@@ -189,11 +193,12 @@ def get_ai_coach_feedback(project_id, cred_file, target_text, user_text, score):
     except Exception as e:
         return f"AI 錯誤: {str(e)}"
 
-# [修改] 使用 Vertex AI 的單字查詢函式 (傳入 cred_file，並加入快取清除邏輯)
-def get_word_info(_cred_file, project_id, word, sentence):
-    if not init_vertex_ai(project_id, _cred_file): return "⚠️ 請檢查 Project ID 並一定要上傳憑證 JSON 檔案"
+# [修改] 使用 Vertex AI 的單字查詢函式
+@st.cache_data(show_spinner=False)
+def get_word_info(word, sentence):
+    # 確保已初始化
+    if not st.session_state.vertex_ai_ready: return "⚠️ AI 尚未就緒，請檢查 Secrets 設定。"
     try:
-        # 使用最新的 Gemini Pro 模型
         model = GenerativeModel("gemini-1.5-pro-preview-0409")
         prompt = f"解釋單字 '{word}' 在句子 '{sentence}' 中的意思。格式：🔊[{word}] KK音標\\n🏷️[詞性]\\n💡[繁中意思](簡潔)"
         responses = model.generate_content(prompt, stream=False)
@@ -202,9 +207,10 @@ def get_word_info(_cred_file, project_id, word, sentence):
         print(f"Vertex AI Query Failed: {e}")
         return f"❌ 查詢失敗: {str(e)}"
 
-# [修改] 使用 Vertex AI 的出題函式 (傳入 cred_file)
-def generate_quiz(project_id, cred_file, word):
-    if not init_vertex_ai(project_id, cred_file): return None
+# [修改] 使用 Vertex AI 的出題函式
+def generate_quiz(word):
+    # 確保已初始化
+    if not st.session_state.vertex_ai_ready: return None
     try:
         model = GenerativeModel("gemini-1.5-pro-preview-0409")
         prompt = f"""
@@ -261,38 +267,31 @@ if 'current_audio_path' not in st.session_state: st.session_state.current_audio_
 if 'quiz_data' not in st.session_state: st.session_state.quiz_data = None
 if 'quiz_answer_show' not in st.session_state: st.session_state.quiz_answer_show = False
 if 'is_finished' not in st.session_state: st.session_state.is_finished = False
+if 'vertex_ai_ready' not in st.session_state: st.session_state.vertex_ai_ready = False
 
-# 讀取 Project ID
-if 'saved_project_id' not in st.session_state:
-    if os.path.exists(PROJECT_FILE):
-        with open(PROJECT_FILE, "r") as f: st.session_state.saved_project_id = f.read().strip()
-    else: st.session_state.saved_project_id = ""
+# 程式啟動時，嘗試初始化 AI
+if not st.session_state.vertex_ai_ready:
+    is_ready, msg = init_vertex_ai_from_secrets()
+    st.session_state.vertex_ai_ready = is_ready
+    st.session_state.vertex_ai_msg = msg
 
 # --- 側邊欄 ---
 with st.sidebar:
-    st.title("⚙️ 設定 (Vertex 本機版)")
+    st.title("⚙️ 設定 (雲端終極版)")
     
-    # Project ID 輸入框
-    google_project_id = st.text_input("Google Project ID", value=st.session_state.saved_project_id)
-    if google_project_id != st.session_state.saved_project_id:
-        with open(PROJECT_FILE, "w") as f: f.write(google_project_id)
-        st.session_state.saved_project_id = google_project_id
-
-    # [關鍵] 憑證檔案上傳 (一定要有這個檔案)
-    st.markdown("### 🔐 驗證方式 (必填)")
-    st.info("請上傳您的 Google Cloud 服務帳戶 JSON 憑證檔。")
-    uploaded_creds = st.file_uploader("📄 上傳 Google 憑證 (JSON)", type=["json"], key="vertex_creds")
-
-    if not google_project_id or not uploaded_creds:
-        st.error("⛔ 請輸入 Project ID 並上傳憑證檔案，否則無法查詢！")
+    # 顯示 AI 連線狀態
+    if st.session_state.vertex_ai_ready:
+        st.success(st.session_state.vertex_ai_msg)
     else:
-        st.success("✅ 憑證已載入，可以開始使用！")
-    
+        st.error(st.session_state.vertex_ai_msg)
+        st.info("請在 Streamlit Cloud 的 'Settings -> Secrets' 中貼上您的 Google JSON 憑證內容。")
+
     st.markdown("---")
     app_mode = st.radio("選擇模式", ["📖 跟讀練習", "📝 單字測驗"], index=0)
     st.markdown("---")
     
     with st.expander("💾 資料備份與還原", expanded=True):
+        st.caption("雲端重啟會清除資料，請定期下載！")
         vocab_list = load_vocab()
         if vocab_list:
             json_str = json.dumps(vocab_list, ensure_ascii=False, indent=4)
@@ -394,12 +393,12 @@ if app_mode == "📖 跟讀練習":
             words = re.findall(r"\b\w+\b", target_sentence)
             cols = st.columns(5)
             for i, word in enumerate(words):
-                # [修改] 只有在有上傳憑證時才允許點擊
-                if cols[i % 5].button(word, key=f"w_{idx}_{i}", disabled=not uploaded_creds):
+                # [修改] 只有在 AI 就緒時才允許點擊
+                if cols[i % 5].button(word, key=f"w_{idx}_{i}", disabled=not st.session_state.vertex_ai_ready):
                     st.session_state.current_word_target = word
                     with st.spinner("🔍 Vertex AI 查詢中..."):
-                        # [修改] 傳入 uploaded_creds
-                        info = get_word_info(uploaded_creds, google_project_id, word, target_sentence)
+                        # [修改] 不需要再傳入參數，直接呼叫
+                        info = get_word_info(word, target_sentence)
                         st.session_state.current_word_info = info
                         
                         if "查詢失敗" not in info and "請檢查" not in info:
@@ -409,8 +408,8 @@ if app_mode == "📖 跟讀練習":
                         else:
                             st.session_state.current_word_audio = None
             
-            if not uploaded_creds:
-                 st.warning("請先在側邊欄上傳憑證檔案，才能使用單字查詢功能。")
+            if not st.session_state.vertex_ai_ready:
+                 st.warning("⚠️ AI 尚未就緒，請先在 Streamlit Cloud 設定 Secrets。")
 
             if st.session_state.current_word_info:
                 info_html = st.session_state.current_word_info.replace('\n', '<br>')
@@ -443,12 +442,12 @@ if app_mode == "📖 跟讀練習":
         with col_R:
             st.subheader("🎙️ 口說")
             st.markdown(f'<div class="mobile-hint-card">📖 跟讀：<br>{target_sentence}</div>', unsafe_allow_html=True)
-            # [修改] 只有在有上傳憑證時才允許錄音
-            user_audio = st.audio_input("錄音", key=f"rec_{idx}", disabled=not uploaded_creds)
-            if not uploaded_creds:
-                 st.warning("請先上傳憑證檔案，才能使用口說評分功能。")
+            # [修改] 只有在 AI 就緒時才允許錄音
+            user_audio = st.audio_input("錄音", key=f"rec_{idx}", disabled=not st.session_state.vertex_ai_ready)
+            if not st.session_state.vertex_ai_ready:
+                 st.warning("⚠️ 請先設定 Secrets，才能使用口說評分功能。")
             
-            if user_audio and st.session_state.current_audio_path and uploaded_creds:
+            if user_audio and st.session_state.current_audio_path and st.session_state.vertex_ai_ready:
                 with st.spinner("🤖 Vertex AI 分析中..."):
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
                         tmp.write(user_audio.read()); user_path = tmp.name
@@ -459,8 +458,8 @@ if app_mode == "📖 跟讀練習":
                     
                     adj_pitch = max(60, raw_pitch_score)
                     final_score = (score_text * 0.8) + (adj_pitch * 0.2)
-                    # [修改] 傳入 uploaded_creds
-                    feedback = get_ai_coach_feedback(google_project_id, uploaded_creds, target_sentence, u_text, final_score)
+                    # [修改] 不需傳參數
+                    feedback = get_ai_coach_feedback(target_sentence, u_text, final_score)
 
                 if final_score >= 80: st.success(f"🎉 分數：{final_score:.0f}")
                 else: st.info(f"💪 分數：{final_score:.0f}")
@@ -486,23 +485,23 @@ elif app_mode == "📝 單字測驗":
         st.info("📭 目前單字本是空的。請先去「跟讀練習」查詢單字並按「⭐ 收藏」。")
     else:
         st.write(f"📚 累積單字：**{len(vocab_list)}** 個")
-        # [修改] 只有在有上傳憑證時才允許出題
-        if st.button("🎲 隨機出一題 (Vertex AI)", type="primary", use_container_width=True, disabled=not uploaded_creds):
+        # [修改] 只有在 AI 就緒時才允許出題
+        if st.button("🎲 隨機出一題 (Vertex AI)", type="primary", use_container_width=True, disabled=not st.session_state.vertex_ai_ready):
             target = random.choice(vocab_list)
             word = target["word"]
             info = target["info"]
 
             with st.spinner(f"正在為 '{word}' 出題..."):
-                # [修改] 傳入 uploaded_creds
-                q_text = generate_quiz(google_project_id, uploaded_creds, word)
+                # [修改] 不需傳參數
+                q_text = generate_quiz(word)
                 if q_text and "失敗" not in q_text:
                     st.session_state.quiz_data = {"word": word, "content": q_text, "original_info": info}
                     st.session_state.quiz_answer_show = False
                 else:
-                    st.error("出題失敗 (請檢查 Project ID 和憑證檔案)")
+                    st.error("出題失敗 (請檢查 Secrets 設定)")
         
-        if not uploaded_creds:
-             st.warning("請先上傳憑證檔案，才能使用測驗功能。")
+        if not st.session_state.vertex_ai_ready:
+             st.warning("⚠️ 請先設定 Secrets，才能使用測驗功能。")
 
         if st.session_state.quiz_data:
             data = st.session_state.quiz_data
