@@ -11,22 +11,21 @@ import speech_recognition as sr
 from gtts import gTTS
 import ssl
 
-# [核心修改] 改用 Vertex AI
+# [核心修改] 改用 Vertex AI 及 Secrets
 import vertexai
 from vertexai.preview.generative_models import GenerativeModel
-# [新增] 用於處理雲端 Secrets
 from google.oauth2 import service_account
 
 # 1. 設定頁面
 try:
-    st.set_page_config(page_title="AI 英文教練 Pro (雲端終極版)", layout="wide", page_icon="🎓")
+    st.set_page_config(page_title="AI 英文教練 Pro (雲端 Secrets 版)", layout="wide", page_icon="🎓")
 except:
     pass
 
 # 2. 忽略 SSL 錯誤
 ssl._create_default_https_context = ssl._create_unverified_context
 
-# 3. 安全匯入
+# 3. 安全匯入 TTS 和 Librosa
 HAS_OFFLINE_TTS = False
 try:
     import pyttsx3
@@ -56,7 +55,7 @@ def save_vocab_to_disk(vocab_list):
         json.dump(vocab_list, f, ensure_ascii=False, indent=4)
 
 def add_word_to_vocab(word, info):
-    if not word or "查詢失敗" in info or "請檢查" in info: return False
+    if not word or "查詢失敗" in info or "請檢查" in info or "AI 未就緒" in info: return False
     vocab_list = load_vocab()
     for v in vocab_list:
         if v["word"] == word: return False
@@ -70,27 +69,23 @@ def add_word_to_vocab(word, info):
 @st.cache_resource(show_spinner=False)
 def init_vertex_ai_from_secrets():
     """嘗試從 Streamlit Secrets 初始化 Vertex AI"""
-    try:
-        # 檢查 Secrets 是否存在
-        if "gcp_service_account" not in st.secrets:
-            print("Secrets 'gcp_service_account' not found.")
-            return None, "請在 Streamlit Cloud 設定 Secrets。"
+    # 檢查 Secrets 是否存在
+    if "gcp_service_account" not in st.secrets:
+        return False, None, "❌ 未找到 Secrets 設定。請在 Streamlit Cloud 設定中貼上您的憑證資料。"
 
+    try:
         # 從 Secrets 建立憑證物件
-        credentials = service_account.Credentials.from_service_account_info(
-            st.secrets["gcp_service_account"]
-        )
+        creds_info = st.secrets["gcp_service_account"]
+        credentials = service_account.Credentials.from_service_account_info(creds_info)
         
         # 從 Secrets 中獲取 Project ID
-        project_id = st.secrets["gcp_service_account"]["project_id"]
+        project_id = creds_info["project_id"]
 
         # 初始化 Vertex AI
         vertexai.init(project=project_id, location="us-central1", credentials=credentials)
-        print("Vertex AI initialized successfully from Secrets.")
-        return True, "✅ Vertex AI 已連線 (雲端模式)"
+        return True, project_id, "✅ Vertex AI 已連線 (Secrets 模式)"
     except Exception as e:
-        print(f"Vertex AI Init Error (Secrets): {e}")
-        return None, f"Vertex AI 連線失敗: {e}"
+        return False, None, f"❌ Vertex AI 連線失敗 (Secrets 錯誤): {e}"
 
 # ==========================================
 # 1. UI 美化
@@ -175,7 +170,7 @@ def plot_and_get_trend(teacher_path, student_path):
 # [修改] 使用 Vertex AI 的回饋函式
 def get_ai_coach_feedback(target_text, user_text, score):
     # 確保已初始化
-    if not st.session_state.vertex_ai_ready: return "⚠️ AI 尚未就緒，請檢查 Secrets 設定。"
+    if not st.session_state.get("vertex_ai_ready", False): return "⚠️ AI 未就緒 (Secrets 設定錯誤)"
     try:
         model = GenerativeModel("gemini-1.5-pro-preview-0409")
         prompt = f"""
@@ -197,7 +192,7 @@ def get_ai_coach_feedback(target_text, user_text, score):
 @st.cache_data(show_spinner=False)
 def get_word_info(word, sentence):
     # 確保已初始化
-    if not st.session_state.vertex_ai_ready: return "⚠️ AI 尚未就緒，請檢查 Secrets 設定。"
+    if not st.session_state.get("vertex_ai_ready", False): return "⚠️ AI 未就緒 (Secrets 設定錯誤)"
     try:
         model = GenerativeModel("gemini-1.5-pro-preview-0409")
         prompt = f"解釋單字 '{word}' 在句子 '{sentence}' 中的意思。格式：🔊[{word}] KK音標\\n🏷️[詞性]\\n💡[繁中意思](簡潔)"
@@ -210,7 +205,7 @@ def get_word_info(word, sentence):
 # [修改] 使用 Vertex AI 的出題函式
 def generate_quiz(word):
     # 確保已初始化
-    if not st.session_state.vertex_ai_ready: return None
+    if not st.session_state.get("vertex_ai_ready", False): return None
     try:
         model = GenerativeModel("gemini-1.5-pro-preview-0409")
         prompt = f"""
@@ -267,24 +262,24 @@ if 'current_audio_path' not in st.session_state: st.session_state.current_audio_
 if 'quiz_data' not in st.session_state: st.session_state.quiz_data = None
 if 'quiz_answer_show' not in st.session_state: st.session_state.quiz_answer_show = False
 if 'is_finished' not in st.session_state: st.session_state.is_finished = False
-if 'vertex_ai_ready' not in st.session_state: st.session_state.vertex_ai_ready = False
 
-# 程式啟動時，嘗試初始化 AI
-if not st.session_state.vertex_ai_ready:
-    is_ready, msg = init_vertex_ai_from_secrets()
+# [關鍵] 程式啟動時，立即嘗試從 Secrets 初始化 AI
+if 'vertex_ai_ready' not in st.session_state:
+    is_ready, project_id, msg = init_vertex_ai_from_secrets()
     st.session_state.vertex_ai_ready = is_ready
     st.session_state.vertex_ai_msg = msg
+    st.session_state.project_id = project_id
 
 # --- 側邊欄 ---
 with st.sidebar:
-    st.title("⚙️ 設定 (雲端終極版)")
+    st.title("⚙️ 設定")
     
     # 顯示 AI 連線狀態
     if st.session_state.vertex_ai_ready:
-        st.success(st.session_state.vertex_ai_msg)
+        st.success(f"{st.session_state.vertex_ai_msg}\n(專案: {st.session_state.project_id})")
     else:
         st.error(st.session_state.vertex_ai_msg)
-        st.info("請在 Streamlit Cloud 的 'Settings -> Secrets' 中貼上您的 Google JSON 憑證內容。")
+        st.info("請確認您已在 Streamlit Cloud 的 Secrets 中正確貼上您的 Google JSON 憑證內容。")
 
     st.markdown("---")
     app_mode = st.radio("選擇模式", ["📖 跟讀練習", "📝 單字測驗"], index=0)
@@ -311,7 +306,7 @@ with st.sidebar:
         tts_mode = "☁️ 線上 (Google)"
     voice_speed = st.slider("語速", 0.5, 1.5, 1.0, 0.1)
 
-st.title("🎤 AI 英文教練 (付費升級版)")
+st.title("🎤 AI 英文教練 (雲端 Secrets 版)")
 
 # ==========================================
 # 模式 A: 跟讀練習
@@ -401,7 +396,7 @@ if app_mode == "📖 跟讀練習":
                         info = get_word_info(word, target_sentence)
                         st.session_state.current_word_info = info
                         
-                        if "查詢失敗" not in info and "請檢查" not in info:
+                        if "查詢失敗" not in info and "AI 未就緒" not in info:
                             w_path = speak_google(word, 1.0)
                             if not w_path: w_path = speak_offline(word, 1.0)
                             st.session_state.current_word_audio = w_path
@@ -409,7 +404,7 @@ if app_mode == "📖 跟讀練習":
                             st.session_state.current_word_audio = None
             
             if not st.session_state.vertex_ai_ready:
-                 st.warning("⚠️ AI 尚未就緒，請先在 Streamlit Cloud 設定 Secrets。")
+                 st.warning("⚠️ AI 尚未就緒，請檢查 Secrets 設定。")
 
             if st.session_state.current_word_info:
                 info_html = st.session_state.current_word_info.replace('\n', '<br>')
@@ -420,7 +415,7 @@ if app_mode == "📖 跟讀練習":
                     if st.session_state.current_word_audio:
                         st.audio(st.session_state.current_word_audio, format='audio/mp3')
                 with c_s:
-                    if "查詢失敗" not in st.session_state.current_word_info and "請檢查" not in st.session_state.current_word_info:
+                    if "查詢失敗" not in st.session_state.current_word_info and "AI 未就緒" not in st.session_state.current_word_info:
                         if st.button("⭐ 收藏", use_container_width=True):
                             saved = add_word_to_vocab(st.session_state.current_word_target, st.session_state.current_word_info)
                             if saved: st.toast("✅ 已收藏")
@@ -445,7 +440,7 @@ if app_mode == "📖 跟讀練習":
             # [修改] 只有在 AI 就緒時才允許錄音
             user_audio = st.audio_input("錄音", key=f"rec_{idx}", disabled=not st.session_state.vertex_ai_ready)
             if not st.session_state.vertex_ai_ready:
-                 st.warning("⚠️ 請先設定 Secrets，才能使用口說評分功能。")
+                 st.warning("⚠️ AI 未就緒，無法使用口說評分功能。")
             
             if user_audio and st.session_state.current_audio_path and st.session_state.vertex_ai_ready:
                 with st.spinner("🤖 Vertex AI 分析中..."):
@@ -501,7 +496,7 @@ elif app_mode == "📝 單字測驗":
                     st.error("出題失敗 (請檢查 Secrets 設定)")
         
         if not st.session_state.vertex_ai_ready:
-             st.warning("⚠️ 請先設定 Secrets，才能使用測驗功能。")
+             st.warning("⚠️ AI 未就緒，無法使用測驗功能。")
 
         if st.session_state.quiz_data:
             data = st.session_state.quiz_data
