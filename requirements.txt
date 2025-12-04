@@ -1,11 +1,8 @@
 streamlit
 SpeechRecognition
 gTTS
-pyttsx3
+google-generativeai
 numpy
 matplotlib
 scipy
 librosa
-# [移除] google-generativeai
-# [新增] Vertex AI 專用套件
-google-cloud-aiplatform
