@@ -1,9 +1,12 @@
 import streamlit as st
-# 1. 設定頁面 (保持在第一行)
-st.set_page_config(page_title="AI 英文教練 Pro (Google版)", layout="wide", page_icon="🎤")
+
+# 1. 設定頁面 (絕對第一行)
+try:
+    st.set_page_config(page_title="AI 英文教練 (雲端版)", layout="wide", page_icon="🎤")
+except:
+    pass
 
 import speech_recognition as sr
-import pyttsx3
 from gtts import gTTS
 import tempfile
 import os
@@ -14,10 +17,18 @@ import matplotlib.pyplot as plt
 import google.generativeai as genai
 import ssl
 
-# 2. 忽略 SSL 錯誤
+# 2. 忽略 SSL 錯誤 (解決 Windows 連線問題)
 ssl._create_default_https_context = ssl._create_unverified_context
 
-# 3. 嘗試匯入 librosa
+# 3. 安全匯入 (防止雲端部署失敗)
+# 嘗試匯入 pyttsx3 (離線語音)，如果雲端不支援則跳過
+try:
+    import pyttsx3
+    HAS_OFFLINE_TTS = True
+except ImportError:
+    HAS_OFFLINE_TTS = False
+
+# 嘗試匯入 librosa
 try:
     import librosa
     HAS_LIBROSA = True
@@ -82,8 +93,8 @@ def inject_custom_css():
 def split_text_into_sentences(text):
     text = text.replace('\n', ' ')
     raw_sentences = re.split(r'(?<=[.!?])\s+', text)
-    sentences = [s.strip() for s in raw_sentences if len(s.strip()) > 0]
-    return sentences
+    # [修正] 之前這裡被截斷，現在補齊了
+    return [s.strip() for s in raw_sentences if len(s.strip()) > 0]
 
 def transcribe_audio(audio_path):
     r = sr.Recognizer()
@@ -182,7 +193,7 @@ def get_word_info(api_key, word, sentence):
         return f"❌ 查詢失敗: {error_msg}"
 
 # ==========================================
-# 2. 發音引擎
+# 2. 發音引擎 (防崩潰版)
 # ==========================================
 
 def speak_google_tts(text, speed=1.0, lang='en'):
@@ -197,6 +208,7 @@ def speak_google_tts(text, speed=1.0, lang='en'):
         return None, None
 
 def speak_offline_fallback(text, speed=1.0):
+    if not HAS_OFFLINE_TTS: return None # 如果雲端沒有安裝 pyttsx3，直接回傳 None
     try:
         engine = pyttsx3.init()
         engine.setProperty('rate', int(175 * speed))
@@ -207,6 +219,7 @@ def speak_offline_fallback(text, speed=1.0):
     except: return None
 
 def get_offline_voices():
+    if not HAS_OFFLINE_TTS: return {} # 雲端不支援
     try:
         engine = pyttsx3.init()
         voices = engine.getProperty('voices')
@@ -223,8 +236,9 @@ inject_custom_css()
 if 'game_active' not in st.session_state: st.session_state.game_active = False
 if 'sentences' not in st.session_state: st.session_state.sentences = []
 if 'current_index' not in st.session_state: st.session_state.current_index = 0
-if 'current_word_definition' not in st.session_state: st.session_state.current_word_definition = None
-if 'current_word_audio' not in st.session_state: st.session_state.current_word_audio = None # 新增單字聲音
+if 'current_word_info' not in st.session_state: st.session_state.current_word_info = None
+if 'current_word_target' not in st.session_state: st.session_state.current_word_target = None
+if 'current_word_audio' not in st.session_state: st.session_state.current_word_audio = None
 
 KEY_FILE = "secret_key.txt"
 if 'saved_api_key' not in st.session_state:
@@ -240,7 +254,14 @@ with st.sidebar:
         st.session_state.saved_api_key = gemini_api_key
     
     st.markdown("---")
-    tts_mode = st.radio("發音模式", ["☁️ 線上 (AI)", "💻 離線 (Windows)"], index=0)
+    
+    # 根據是否支援離線發音，調整選項
+    if HAS_OFFLINE_TTS:
+        mode_options = ["☁️ 線上 (AI)", "💻 離線 (Windows)"]
+    else:
+        mode_options = ["☁️ 線上 (AI)"] # 雲端版只顯示線上
+        
+    tts_mode = st.radio("發音模式", mode_options, index=0)
     
     selected_voice_id = None
     if "線上" in tts_mode:
@@ -253,7 +274,7 @@ with st.sidebar:
             voice_choice = st.selectbox("選擇語音", list(offline_voices.keys()))
             selected_voice_id = offline_voices[voice_choice]
             
-    voice_speed = st.slider("語速", 0.5, 1.5, 1.0, 0.1)
+    voice_speed = st.slider("語速調整", 0.5, 1.5, 1.0, 0.1)
 
 st.title("🎤 Voice Lab 英文跟讀教練")
 
@@ -276,13 +297,13 @@ else:
     sentences = st.session_state.sentences
     target_sentence = sentences[idx]
 
-    # === [新增功能] 導航列 (上一句/下一句) ===
+    # === [新增] 導航列 ===
     col_prev, col_prog, col_next = st.columns([1, 4, 1])
     
     with col_prev:
         if st.button("⬅️ 上一句", disabled=(idx == 0), use_container_width=True):
             st.session_state.current_index -= 1
-            st.session_state.current_word_definition = None # 清除單字查詢
+            st.session_state.current_word_info = None
             st.session_state.current_word_audio = None
             st.rerun()
             
@@ -292,7 +313,7 @@ else:
     with col_next:
         if st.button("下一句 ➡️", disabled=(idx == len(sentences)-1), use_container_width=True):
             st.session_state.current_index += 1
-            st.session_state.current_word_definition = None
+            st.session_state.current_word_info = None
             st.session_state.current_word_audio = None
             st.rerun()
 
@@ -309,23 +330,19 @@ else:
         for i, word in enumerate(words):
             if cols[i % 5].button(word, key=f"btn_{idx}_{i}"):
                 if gemini_api_key:
+                    st.session_state.current_word_target = word
                     with st.spinner("🔍..."):
-                        # 1. 查義
                         info = get_word_info(gemini_api_key, word, target_sentence)
-                        st.session_state.current_word_definition = f"**{word}**：\n{info}"
+                        st.session_state.current_word_info = f"**{word}**：\n{info}"
                         
-                        # 2. 發音 (帶入語速參數)
                         w_path, _ = speak_google_tts(word, voice_speed)
-                        if not w_path: 
-                            w_path = speak_offline_fallback(word, voice_speed)
-                        
+                        if not w_path: w_path = speak_offline_fallback(word, voice_speed)
                         st.session_state.current_word_audio = w_path
                 else:
                     st.error("請輸入 Key")
 
-        # 顯示查詢結果
-        if st.session_state.current_word_definition:
-            info_html = st.session_state.current_word_definition.replace('\n', '<br>')
+        if st.session_state.current_word_info:
+            info_html = st.session_state.current_word_info.replace('\n', '<br>')
             st.markdown(f"""
             <div class="definition-card">
                 <div>{info_html}</div>
@@ -338,7 +355,6 @@ else:
         st.markdown("---")
         st.subheader("🗣️ 整句示範")
         
-        # 整句發音 (帶入語速參數)
         path, engine_name = speak_google_tts(target_sentence, voice_speed)
         if not path: 
              path = speak_offline_fallback(target_sentence, voice_speed)
@@ -376,8 +392,8 @@ else:
             else:
                 st.warning(f"💪 再加油：{final_score:.0f}")
 
-            # === [新增功能] 回放自己的聲音 ===
-            st.write("🎧 **回放你的錄音：**")
+            # === [新增] 回放自己的聲音 ===
+            st.write("🎧 **回放您的錄音：**")
             st.audio(user_path, format='audio/wav')
 
             st.markdown(f"""
@@ -396,4 +412,4 @@ else:
             if final_score >= 80:
                 st.markdown("---")
                 if st.button("➡️ 下一句", type="primary", use_container_width=True):
-                    st.session_state.current_index += 1; st.session_state.current_audio_path = None; st.session_state.current_word_definition = None; st.session_state.current_word_audio = None; st.rerun()
+                    st.session_state.current_index += 1; st.session_state.current_audio_path = None; st.session_state.current_word_info = None; st.session_state.current_word_audio = None; st.rerun()
