@@ -2,7 +2,7 @@ import streamlit as st
 
 # 1. 設定頁面
 try:
-    st.set_page_config(page_title="AI 英文教練 Pro (AI直聽版)", layout="wide", page_icon="🎧")
+    st.set_page_config(page_title="AI 英文教練 Pro (重點版)", layout="wide", page_icon="🖍️")
 except:
     pass
 
@@ -17,7 +17,7 @@ import ssl
 # 2. 忽略 SSL 錯誤
 ssl._create_default_https_context = ssl._create_unverified_context
 
-# 3. 安全匯入離線發音 (雲端防崩潰)
+# 3. 安全匯入離線發音
 HAS_OFFLINE_TTS = False
 try:
     import pyttsx3
@@ -50,14 +50,25 @@ def inject_custom_css():
             padding: 15px; border-radius: 12px; margin-top: 15px; font-size: 18px; 
         }
         
-        /* 評分卡片樣式 */
+        /* 評論區塊 */
+        .ai-feedback-box {
+            background-color: #ffffff;
+            border: 2px solid #e0e0e0;
+            border-left: 8px solid #d32f2f; /* 改成紅色系，強調修正 */
+            padding: 20px;
+            border-radius: 10px;
+            color: #212121;
+            margin-top: 20px;
+            font-size: 18px;
+            line-height: 1.8; /* 行高加大，讓重點字更清楚 */
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        
         .score-card {
             background-color: #ffffff; padding: 15px; border-radius: 10px;
             box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 15px;
-            border: 1px solid #eee;
+            border: 1px solid #eee; text-align: center;
         }
-        .score-title { font-size: 16px; color: #666; font-weight: bold; }
-        .score-val { font-size: 24px; font-weight: bold; color: #2e7d32; }
         
         div.stButton > button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; }
         </style>
@@ -71,16 +82,14 @@ def split_text_into_sentences(text):
     raw_sentences = re.split(r'(?<=[.!?])\s+', text)
     return [s.strip() for s in raw_sentences if len(s.strip()) > 0]
 
-# [核心] AI 直聽分析
+# [核心] AI 直聽分析 (加入重點標示指令)
 def analyze_audio_with_gemini(api_key, target_sentence, audio_path):
     if not api_key: return None, "請輸入 API Key"
     
     try:
         genai.configure(api_key=api_key)
-        # 使用具備聽力能力的 Gemini 2.0 Flash
         model = genai.GenerativeModel('gemini-2.0-flash')
         
-        # 讀取音訊檔
         with open(audio_path, "rb") as f:
             audio_data = f.read()
             
@@ -88,24 +97,24 @@ def analyze_audio_with_gemini(api_key, target_sentence, audio_path):
         你是一位專業的英文口說教練。
         目標句子是："{target_sentence}"
         
-        請「仔細聆聽」使用者的錄音，並針對以下三個維度進行評分與分析：
-        1. **準確度 (Accuracy)**：發音是否正確？有無唸錯字？
-        2. **流暢度 (Fluency)**：是否有不自然的停頓、結巴或遲疑？連音是否自然？
-        3. **語調 (Intonation)**：抑揚頓挫是否自然？有沒有像機器人一樣平淡？
+        請「仔細聆聽」使用者的錄音，針對準確度、流暢度、語調評分 (0-100)。
 
-        請依照以下格式回傳結果 (請嚴格遵守格式)：
-        
+        回傳格式：
         [SCORE_START]
-        ACCURACY: (0-100的數字)
-        FLUENCY: (0-100的數字)
-        INTONATION: (0-100的數字)
+        ACCURACY: (分數)
+        FLUENCY: (分數)
+        INTONATION: (分數)
         [SCORE_END]
         
         **🌟 綜合講評 (繁體中文)**：
-        先給予肯定，再明確指出哪裡不順暢、哪個字發音要修正，以及語調建議。
+        先給予肯定，再明確指出建議。
+        
+        【重要格式要求】：
+        **若有唸錯的單字、需要加強的發音、或是關鍵建議，請務必使用 HTML 標籤標示為「紅色粗體+底線」。**
+        範例格式： <strong style='color:#d32f2f; text-decoration:underline;'>word</strong>
+        請大量使用這個格式來強調重點，讓學生一眼就能看到哪裡要改。
         """
         
-        # 傳送音訊與提示詞 (Multimodal)
         response = model.generate_content([
             prompt,
             {"mime_type": "audio/wav", "data": audio_data}
@@ -117,26 +126,23 @@ def analyze_audio_with_gemini(api_key, target_sentence, audio_path):
         return None, f"AI 分析失敗: {str(e)}"
 
 def parse_scores(text):
-    """從 AI 回傳文字中解析分數"""
     scores = {"ACCURACY": 0, "FLUENCY": 0, "INTONATION": 0}
+    comment = text
     try:
         if "[SCORE_START]" in text and "[SCORE_END]" in text:
+            parts = text.split("[SCORE_END]")
             block = text.split("[SCORE_START]")[1].split("[SCORE_END]")[0]
+            comment = parts[1].strip()
+            
             for line in block.strip().split('\n'):
                 if ":" in line:
                     key, val = line.split(":")
                     key = key.strip().upper()
                     if key in scores:
                         scores[key] = int(re.search(r'\d+', val).group())
-            
-            # 移除分數區塊，只留講評
-            comment = text.split("[SCORE_END]")[1].strip()
-            return scores, comment
-    except:
-        pass
-    return scores, text # 解析失敗則回傳原文字
+    except: pass
+    return scores, comment
 
-# 單字查詢
 @st.cache_data(show_spinner=False)
 def get_word_info(api_key, word, sentence):
     try:
@@ -186,151 +192,4 @@ if 'sentences' not in st.session_state: st.session_state.sentences = []
 if 'current_index' not in st.session_state: st.session_state.current_index = 0
 if 'current_word_info' not in st.session_state: st.session_state.current_word_info = None
 if 'current_word_audio' not in st.session_state: st.session_state.current_word_audio = None
-if 'current_audio_path' not in st.session_state: st.session_state.current_audio_path = None
-
-KEY_FILE = "secret_key.txt"
-if 'saved_api_key' not in st.session_state:
-    if os.path.exists(KEY_FILE):
-        with open(KEY_FILE, "r") as f: st.session_state.saved_api_key = f.read().strip()
-    else: st.session_state.saved_api_key = ""
-
-# Sidebar
-with st.sidebar:
-    st.header("⚙️ 設定")
-    gemini_api_key = st.text_input("🔑 Google API Key", value=st.session_state.saved_api_key, type="password")
-    if gemini_api_key != st.session_state.saved_api_key:
-        with open(KEY_FILE, "w") as f: f.write(gemini_api_key)
-        st.session_state.saved_api_key = gemini_api_key
-    
-    st.markdown("---")
-    if HAS_OFFLINE_TTS:
-        tts_mode = st.radio("發音模式", ["☁️ 線上 (Google)", "💻 離線 (Windows)"], index=0)
-    else:
-        st.info("☁️ 雲端模式 (Google 發音)")
-        tts_mode = "☁️ 線上 (Google)"
-    
-    voice_speed = st.slider("語速 (Google僅支援1.0/慢速)", 0.5, 1.5, 1.0, 0.1)
-
-st.title("🎤 AI 英文教練 (Pro)")
-
-# Input Area
-if not st.session_state.game_active:
-    st.markdown('<div class="css-card">', unsafe_allow_html=True)
-    input_text = st.text_area("📝 請貼上文章：", value="Technology is changing how we live and work every single day.", height=150)
-    if st.button("🚀 開始練習", type="primary", use_container_width=True):
-        s = split_text_into_sentences(input_text)
-        if s: 
-            st.session_state.sentences = s
-            st.session_state.current_index = 0
-            st.session_state.game_active = True
-            st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# Practice Area
-else:
-    idx = st.session_state.current_index
-    sentences = st.session_state.sentences
-    target_sentence = sentences[idx]
-
-    # Nav
-    c1, c2, c3 = st.columns([1, 4, 1])
-    with c1: 
-        if st.button("⬅️ 上一句", disabled=(idx==0), use_container_width=True):
-            st.session_state.current_index -= 1
-            st.session_state.current_word_info = None
-            st.session_state.current_word_audio = None
-            st.session_state.current_audio_path = None
-            st.rerun()
-    with c2: st.progress((idx+1)/len(sentences), text=f"進度：{idx+1} / {len(sentences)}")
-    with c3:
-        if st.button("下一句 ➡️", disabled=(idx==len(sentences)-1), use_container_width=True):
-            st.session_state.current_index += 1
-            st.session_state.current_word_info = None
-            st.session_state.current_word_audio = None
-            st.session_state.current_audio_path = None
-            st.rerun()
-
-    col_L, col_R = st.columns([1.5, 1], gap="large")
-
-    # Left: Text & Words
-    with col_L:
-        st.subheader("📖 閱讀與查詢")
-        st.markdown(f'<div class="reading-box">{target_sentence}</div>', unsafe_allow_html=True)
-        
-        words = re.findall(r"\b\w+\b", target_sentence)
-        cols = st.columns(5)
-        for i, word in enumerate(words):
-            if cols[i % 5].button(word, key=f"w_{idx}_{i}"):
-                if gemini_api_key:
-                    with st.spinner("🔍..."):
-                        info = get_word_info(gemini_api_key, word, target_sentence)
-                        st.session_state.current_word_info = f"**{word}**：\n{info}"
-                        w_path = speak_google(word, 1.0)
-                        if not w_path: w_path = speak_offline(word, 1.0)
-                        st.session_state.current_word_audio = w_path
-                else:
-                    st.error("請輸入 Key")
-
-        if st.session_state.current_word_info:
-            info_html = st.session_state.current_word_info.replace('\n', '<br>')
-            st.markdown(f'<div class="definition-card">{info_html}</div>', unsafe_allow_html=True)
-            if st.session_state.current_word_audio:
-                st.audio(st.session_state.current_word_audio, format='audio/mp3')
-
-        st.markdown("---")
-        st.subheader("🗣️ 整句示範")
-        
-        if st.session_state.current_audio_path is None:
-            path = None
-            if "線上" in tts_mode: path = speak_google(target_sentence, voice_speed)
-            if not path: path = speak_offline(target_sentence, voice_speed)
-            st.session_state.current_audio_path = path
-
-        if st.session_state.current_audio_path:
-            st.audio(st.session_state.current_audio_path, format="audio/mp3")
-        else:
-            st.warning("無法生成語音")
-
-    # Right: Audio Analysis (The New Core)
-    with col_R:
-        st.subheader("🎙️ 口說挑戰")
-        st.markdown(f'<div class="mobile-hint-card">📖 跟讀：<br>{target_sentence}</div>', unsafe_allow_html=True)
-        
-        user_audio = st.audio_input("開始錄音", key=f"rec_{idx}")
-        
-        if user_audio:
-            with st.spinner("🧠 AI 正在聆聽分析..."):
-                with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                    tmp.write(user_audio.read())
-                    user_path = tmp.name
-                
-                # 直接送給 Gemini 聽！
-                raw_response, error = analyze_audio_with_gemini(gemini_api_key, target_sentence, user_path)
-                
-                if error:
-                    st.error(error)
-                else:
-                    # 解析分數與評語
-                    scores, comment = parse_scores(raw_response)
-                    
-                    # 顯示回放
-                    st.write("🎧 **回放您的錄音：**")
-                    st.audio(user_path, format="audio/wav")
-                    
-                    # 顯示三維度評分
-                    s1, s2, s3 = st.columns(3)
-                    s1.metric("準確度 Accuracy", f"{scores['ACCURACY']}", help="發音是否正確？有無唸錯字？")
-                    s2.metric("流暢度 Fluency", f"{scores['FLUENCY']}", help="停頓是否自然？有無結巴？")
-                    s3.metric("語調 Intonation", f"{scores['INTONATION']}", help="抑揚頓挫是否像真人？")
-                    
-                    # 顯示總評
-                    st.markdown(f"""
-                    <div style="background-color:#e8f0fe; padding:20px; border-radius:10px; border-left:5px solid #4285F4; margin-top:20px;">
-                        <strong>🤖 AI 總評：</strong><br>{comment}
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                    # 鼓勵機制
-                    avg_score = (scores['ACCURACY'] + scores['FLUENCY'] + scores['INTONATION']) / 3
-                    if avg_score >= 80:
-                        st.balloons()
+if 'current_audio_path' not in st.session_state: st.session_state.current_audio_path
