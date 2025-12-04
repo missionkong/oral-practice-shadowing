@@ -1,8 +1,11 @@
 streamlit
 SpeechRecognition
 gTTS
-google-generativeai
+pyttsx3
 numpy
 matplotlib
 scipy
-# pyttsx3 在雲端 Linux 環境較難設定，雲端版建議主要用 Google 線上發音
+librosa
+# [移除] google-generativeai
+# [新增] Vertex AI 專用套件
+google-cloud-aiplatform
