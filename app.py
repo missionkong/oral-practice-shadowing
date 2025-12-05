@@ -175,21 +175,157 @@ def generate_review_report(api_key, model_name, stats_data):
 def inject_custom_css():
     st.markdown("""
         <style>
-        .stApp { background: linear-gradient(135deg, #fdfbf7 0%, #ebedee 100%); font-family: 'Microsoft JhengHei', sans-serif; }
-        .main .block-container h1, .main .block-container h2, .main .block-container h3, .main .block-container h4, .main .block-container p, .main .block-container div, .main .block-container span, .main .block-container label, .main .block-container li, .main .block-container .stMarkdown { color: #333333 !important; }
-        [data-testid="stSidebar"] { background-color: #263238 !important; }
-        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] div, [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown { color: #ffffff !important; }
-        [data-testid="stSidebar"] input { color: #000000 !important; }
-        [data-testid="stSidebar"] .stSelectbox label { color: #ffffff !important; }
-        .reading-box { font-size: 26px !important; font-weight: bold; color: #000000 !important; line-height: 1.6; padding: 20px; background-color: #ffffff !important; border-left: 8px solid #4285F4; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.15); margin-bottom: 20px; white-space: pre-wrap; font-family: 'Courier New', Courier, monospace; }
-        .definition-card { background-color: #fff9c4 !important; border: 2px solid #fbc02d; color: #3e2723 !important; padding: 15px; border-radius: 12px; margin-top: 15px; font-size: 18px; }
-        .mobile-hint-card { background-color: #e3f2fd !important; border-left: 5px solid #2196f3; padding: 10px; border-radius: 8px; margin-bottom: 10px; font-size: 16px; font-weight: 600; color: #0d47a1 !important; }
-        .quiz-box { background-color: #ffffff !important; border: 2px solid #4caf50; padding: 25px; border-radius: 15px; margin-top: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; }
-        .quiz-question { font-size: 24px; font-weight: bold; color: #1b5e20 !important; margin-bottom: 20px; line-height: 1.6; }
-        .hint-box { background-color: #ffebee !important; color: #c62828 !important; padding: 10px; border-radius: 5px; font-weight: bold; margin-top: 10px; border: 1px dashed #ef9a9a; }
-        .leaderboard-box { background-color: #fff3e0 !important; padding: 10px; border-radius: 8px; border: 1px solid #ffcc80; margin-bottom: 15px; color: #e65100 !important; }
-        .ai-feedback-box { background-color: #f1f8e9 !important; border-left: 5px solid #8bc34a; padding: 15px; border-radius: 10px; color: #33691e !important; margin-top: 20px; }
-        div.stButton > button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; }
+        /* --- 全局背景 --- */
+        .stApp { 
+            background: linear-gradient(135deg, #fdfbf7 0%, #ebedee 100%); 
+            font-family: 'Microsoft JhengHei', sans-serif; 
+        }
+
+        /* ============================================================
+           1. 主畫面 (Main Area) - 強制深色文字 (確保白底可見)
+           ============================================================ */
+        /* 針對主畫面的所有容器、標題、段落、列表、Label */
+        .main .block-container,
+        .main .block-container h1, 
+        .main .block-container h2, 
+        .main .block-container h3, 
+        .main .block-container h4, 
+        .main .block-container p, 
+        .main .block-container li, 
+        .main .block-container span, 
+        .main .block-container label, 
+        .main .block-container div,
+        .main .block-container .stMarkdown,
+        .main .block-container button {
+            color: #000000 !important;
+        }
+        
+        /* 修正主畫面輸入框與 Radio Button 的 Label 顏色 */
+        .main .stTextInput label, 
+        .main .stSelectbox label, 
+        .main .stRadio label,
+        .main .stNumberInput label {
+            color: #000000 !important;
+        }
+
+        /* ============================================================
+           2. 側邊欄 (Sidebar) - 強制白色文字 (配合深色背景)
+           ============================================================ */
+        [data-testid="stSidebar"] {
+            background-color: #263238 !important; /* 深藍灰色背景 */
+        }
+        
+        /* 側邊欄所有文字強制變白 */
+        [data-testid="stSidebar"] h1, 
+        [data-testid="stSidebar"] h2, 
+        [data-testid="stSidebar"] h3, 
+        [data-testid="stSidebar"] p, 
+        [data-testid="stSidebar"] span, 
+        [data-testid="stSidebar"] div, 
+        [data-testid="stSidebar"] label, 
+        [data-testid="stSidebar"] .stMarkdown,
+        [data-testid="stSidebar"] .stRadio label {
+            color: #ffffff !important;
+        }
+        
+        /* 側邊欄輸入框內的文字維持深色 (因為輸入框背景通常是白的) */
+        [data-testid="stSidebar"] input {
+            color: #000000 !important;
+        }
+
+        /* --- 閱讀區塊樣式 --- */
+        .reading-box { 
+            font-size: 26px !important; 
+            font-weight: bold; 
+            color: #000000 !important; 
+            line-height: 1.6; 
+            padding: 20px; 
+            background-color: #ffffff !important; 
+            border-left: 8px solid #4285F4; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.15); 
+            margin-bottom: 20px; 
+            white-space: pre-wrap; 
+            font-family: 'Courier New', Courier, monospace; 
+        }
+        
+        /* --- 單字卡片 --- */
+        .definition-card { 
+            background-color: #fff9c4 !important; 
+            border: 2px solid #fbc02d; 
+            color: #3e2723 !important; 
+            padding: 15px; 
+            border-radius: 12px; 
+            margin-top: 15px; 
+            font-size: 18px; 
+        }
+        
+        /* --- 提示卡 --- */
+        .mobile-hint-card { 
+            background-color: #e3f2fd !important; 
+            border-left: 5px solid #2196f3; 
+            padding: 10px; 
+            border-radius: 8px; 
+            margin-bottom: 10px; 
+            font-size: 16px; 
+            font-weight: 600; 
+            color: #0d47a1 !important; 
+        }
+        
+        /* --- 測驗區塊 --- */
+        .quiz-box { 
+            background-color: #ffffff !important; 
+            border: 2px solid #4caf50; 
+            padding: 25px; 
+            border-radius: 15px; 
+            margin-top: 10px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+            text-align: center;
+        }
+        .quiz-question { 
+            font-size: 24px; 
+            font-weight: bold; 
+            color: #1b5e20 !important; 
+            margin-bottom: 20px; 
+            line-height: 1.6; 
+        }
+        
+        /* --- 提示與排行榜 --- */
+        .hint-box { 
+            background-color: #ffebee !important; 
+            color: #c62828 !important; 
+            padding: 10px; 
+            border-radius: 5px; 
+            font-weight: bold; 
+            margin-top: 10px; 
+            border: 1px dashed #ef9a9a;
+        }
+        .leaderboard-box { 
+            background-color: #fff3e0 !important; 
+            padding: 10px; 
+            border-radius: 8px; 
+            border: 1px solid #ffcc80; 
+            margin-bottom: 15px; 
+            color: #e65100 !important; 
+        }
+        
+        /* --- AI 回饋 --- */
+        .ai-feedback-box { 
+            background-color: #f1f8e9 !important; 
+            border-left: 5px solid #8bc34a; 
+            padding: 15px; 
+            border-radius: 10px; 
+            color: #33691e !important; 
+            margin-top: 20px;
+        }
+        
+        /* --- 按鈕 --- */
+        div.stButton > button { 
+            width: 100%; 
+            border-radius: 8px; 
+            height: 3em; 
+            font-weight: bold; 
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -603,7 +739,7 @@ with st.sidebar:
             except:
                  st.error("還原失敗，格式錯誤。")
 
-st.title("🎤 AI 英文教練 Pro (最終UI版)")
+st.title("🎤 AI 英文教練 Pro (深度分析版)")
 
 # ==========================================
 # 模式 A: 跟讀練習
