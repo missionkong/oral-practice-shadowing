@@ -707,7 +707,9 @@ with st.sidebar:
         if vocab_list:
             json_str = json.dumps(vocab_list, ensure_ascii=False, indent=4)
             st.download_button("📥 下載備份 (JSON)", json_str, "my_vocab.json", "application/json")
-        uploaded_file = st.file_uploader("📤 上傳還原", type=["json"])
+            
+        # [變更] JSON 上傳加上 key
+        uploaded_file = st.file_uploader("📤 上傳還原 (JSON)", type=["json"], key="json_restore_vocab")
         if uploaded_file:
             try:
                 data = json.load(uploaded_file)
@@ -716,6 +718,34 @@ with st.sidebar:
                 st.rerun()
             except:
                  st.error("還原失敗，格式錯誤。")
+
+        st.markdown("---")
+        st.caption("✨ **批次匯入新單字** (TXT/CSV/文章):")
+        
+        # [新增] 批次匯入功能
+        imported_file = st.file_uploader("📂 匯入文章或單字列表 (TXT/CSV)", type=["txt", "csv"], key="batch_import_vocab")
+
+        if imported_file:
+            # 讀取檔案內容
+            try:
+                # 嘗試解碼為 UTF-8 (適用於 TXT 和 CSV)
+                content = imported_file.read().decode("utf-8")
+                words_to_add = process_imported_text(content)
+                
+                st.info(f"偵測到 **{len(words_to_add)}** 個單字。")
+                
+                # 使用唯一的 key
+                if st.button(f"➕ 確認匯入 {len(words_to_add)} 個單字 (待查詢)", type="secondary", use_container_width=True, key="confirm_batch_import"):
+                    count = 0
+                    for word in words_to_add:
+                        # 將 info 設為佔位符，提醒使用者之後需查詢定義
+                        added = add_word_to_vocab(word, "待查詢: 請在跟讀模式下點擊單字查詢定義")
+                        if added:
+                            count += 1
+                    st.success(f"✅ 成功匯入 {count} 個新單字！")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"檔案讀取或解析失敗: {e}")
 
     # [新增] 文法紀錄管理 (包含錯誤、統計與細節)
     with st.expander("💾 文法練習紀錄備份", expanded=False):
