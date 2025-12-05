@@ -18,7 +18,7 @@ import google.generativeai as genai
 
 # 1. 設定頁面
 try:
-    st.set_page_config(page_title="AI 英文教練 Pro (自動偵測+自動修復版)", layout="wide", page_icon="🎓")
+    st.set_page_config(page_title="AI 英文教練 Pro (寬螢幕單字表版)", layout="wide", page_icon="🎓")
 except:
     pass
 
@@ -61,19 +61,22 @@ def save_vocab_to_disk(vocab_list):
         json.dump(vocab_list, f, ensure_ascii=False, indent=4)
 
 def add_word_to_vocab(word, info):
-    # [修改] 支援更新現有單字的解釋 (為了解決"待查詢")
+    """
+    新增或更新單字。
+    如果單字已存在，會更新其定義 (info)。
+    """
     if not word or "查詢失敗" in info or "請輸入 API Key" in info or "Exception" in info: return False
     vocab_list = load_vocab()
     
     # 檢查是否存在
     for v in vocab_list:
         if v["word"].lower() == word.lower():
-            # 如果單字存在，更新它的解釋
+            # [修改] 即使存在也更新定義 (為了修復"待查詢")
             v["info"] = info
             save_vocab_to_disk(vocab_list)
             return True
             
-    # 不存在則新增
+    # 若不存在則新增
     vocab_list.append({"word": word, "info": info, "error_count": 0})
     save_vocab_to_disk(vocab_list)
     return True
@@ -108,21 +111,142 @@ def process_imported_text(text_content):
 def inject_custom_css():
     st.markdown("""
         <style>
-        .stApp { background: linear-gradient(135deg, #fdfbf7 0%, #ebedee 100%); font-family: 'Microsoft JhengHei', sans-serif; }
-        .main .block-container h1, .main .block-container h2, .main .block-container h3, .main .block-container h4, .main .block-container p, .main .block-container div, .main .block-container span, .main .block-container label, .main .block-container li, .main .block-container .stMarkdown { color: #333333 !important; }
-        [data-testid="stSidebar"] { background-color: #263238 !important; }
-        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] div, [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown { color: #ffffff !important; }
-        [data-testid="stSidebar"] input { color: #000000 !important; }
-        [data-testid="stSidebar"] .stSelectbox label { color: #ffffff !important; }
-        .reading-box { font-size: 26px !important; font-weight: bold; color: #000000 !important; line-height: 1.6; padding: 20px; background-color: #ffffff !important; border-left: 8px solid #4285F4; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.15); margin-bottom: 20px; white-space: pre-wrap; font-family: 'Courier New', Courier, monospace; }
-        .definition-card { background-color: #fff9c4 !important; border: 2px solid #fbc02d; color: #3e2723 !important; padding: 15px; border-radius: 12px; margin-top: 15px; font-size: 18px; }
-        .mobile-hint-card { background-color: #e3f2fd !important; border-left: 5px solid #2196f3; padding: 10px; border-radius: 8px; margin-bottom: 10px; font-size: 16px; font-weight: 600; color: #0d47a1 !important; }
-        .quiz-box { background-color: #ffffff !important; border: 2px solid #4caf50; padding: 25px; border-radius: 15px; margin-top: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; }
-        .quiz-question { font-size: 24px; font-weight: bold; color: #1b5e20 !important; margin-bottom: 20px; line-height: 1.6; }
-        .hint-box { background-color: #ffebee !important; color: #c62828 !important; padding: 10px; border-radius: 5px; font-weight: bold; margin-top: 10px; border: 1px dashed #ef9a9a; }
-        .leaderboard-box { background-color: #fff3e0 !important; padding: 10px; border-radius: 8px; border: 1px solid #ffcc80; margin-bottom: 15px; color: #e65100 !important; }
-        .ai-feedback-box { background-color: #f1f8e9 !important; border-left: 5px solid #8bc34a; padding: 15px; border-radius: 10px; color: #33691e !important; margin-top: 20px; }
-        div.stButton > button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; }
+        /* --- 全局背景 --- */
+        .stApp { 
+            background: linear-gradient(135deg, #fdfbf7 0%, #ebedee 100%); 
+            font-family: 'Microsoft JhengHei', sans-serif; 
+        }
+        
+        /* ====== 修正 1: 主畫面 (Main Area) ====== */
+        .main .block-container h1, 
+        .main .block-container h2, 
+        .main .block-container h3, 
+        .main .block-container h4, 
+        .main .block-container p, 
+        .main .block-container div,
+        .main .block-container span,
+        .main .block-container label,
+        .main .block-container li,
+        .main .block-container .stMarkdown {
+            color: #333333 !important; /* 深灰色 */
+        }
+
+        /* ====== 修正 2: 側邊欄 (Sidebar) ====== */
+        [data-testid="stSidebar"] {
+            background-color: #263238 !important; /* 深藍灰色背景 */
+        }
+        
+        [data-testid="stSidebar"] h1, 
+        [data-testid="stSidebar"] h2, 
+        [data-testid="stSidebar"] h3, 
+        [data-testid="stSidebar"] p, 
+        [data-testid="stSidebar"] span, 
+        [data-testid="stSidebar"] div, 
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] .stMarkdown {
+            color: #ffffff !important;
+        }
+        
+        [data-testid="stSidebar"] input {
+            color: #000000 !important;
+        }
+        [data-testid="stSidebar"] .stSelectbox label {
+            color: #ffffff !important;
+        }
+
+        /* --- 閱讀區塊樣式 --- */
+        .reading-box { 
+            font-size: 26px !important; 
+            font-weight: bold; 
+            color: #000000 !important; 
+            line-height: 1.6; 
+            padding: 20px; 
+            background-color: #ffffff !important; 
+            border-left: 8px solid #4285F4; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.15); 
+            margin-bottom: 20px; 
+            white-space: pre-wrap; 
+            font-family: 'Courier New', Courier, monospace; 
+        }
+        
+        /* --- 單字卡片 --- */
+        .definition-card { 
+            background-color: #fff9c4 !important; 
+            border: 2px solid #fbc02d; 
+            color: #3e2723 !important; 
+            padding: 15px; 
+            border-radius: 12px; 
+            margin-top: 15px; 
+            font-size: 18px; 
+        }
+        
+        /* --- 提示卡 --- */
+        .mobile-hint-card { 
+            background-color: #e3f2fd !important; 
+            border-left: 5px solid #2196f3; 
+            padding: 10px; 
+            border-radius: 8px; 
+            margin-bottom: 10px; 
+            font-size: 16px; 
+            font-weight: 600; 
+            color: #0d47a1 !important; 
+        }
+        
+        /* --- 測驗區塊 --- */
+        .quiz-box { 
+            background-color: #ffffff !important; 
+            border: 2px solid #4caf50; 
+            padding: 25px; 
+            border-radius: 15px; 
+            margin-top: 10px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+            text-align: center;
+        }
+        .quiz-question { 
+            font-size: 24px; 
+            font-weight: bold; 
+            color: #1b5e20 !important; 
+            margin-bottom: 20px; 
+            line-height: 1.6; 
+        }
+        
+        /* --- 提示與排行榜 --- */
+        .hint-box { 
+            background-color: #ffebee !important; 
+            color: #c62828 !important; 
+            padding: 10px; 
+            border-radius: 5px; 
+            font-weight: bold; 
+            margin-top: 10px; 
+            border: 1px dashed #ef9a9a;
+        }
+        .leaderboard-box { 
+            background-color: #fff3e0 !important; 
+            padding: 10px; 
+            border-radius: 8px; 
+            border: 1px solid #ffcc80; 
+            margin-bottom: 15px; 
+            color: #e65100 !important; 
+        }
+        
+        /* --- AI 回饋 --- */
+        .ai-feedback-box { 
+            background-color: #f1f8e9 !important; 
+            border-left: 5px solid #8bc34a; 
+            padding: 15px; 
+            border-radius: 10px; 
+            color: #33691e !important; 
+            margin-top: 20px;
+        }
+        
+        /* --- 按鈕 --- */
+        div.stButton > button { 
+            width: 100%; 
+            border-radius: 8px; 
+            height: 3em; 
+            font-weight: bold; 
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -199,7 +323,12 @@ def plot_and_get_trend(teacher_path, student_path):
         return fig, raw_pitch_score, 0
     except: return None, 0, 0
 
-# [新增功能] 接收 model_name 參數
+def handle_ai_error(e, model_name):
+    err_str = str(e)
+    if "429" in err_str: return f"⚠️ {model_name} 額度已滿 (429)。請切換模型。"
+    elif "404" in err_str: return f"❌ 找不到模型 {model_name} (404)。請嘗試使用自動偵測的模型。"
+    else: return f"❌ AI 發生錯誤: {err_str}"
+
 def get_ai_coach_feedback(api_key, model_name, target_text, user_text, score):
     if not api_key: return "⚠️ 請在側邊欄輸入 Google API Key"
     try:
@@ -220,9 +349,8 @@ def get_ai_coach_feedback(api_key, model_name, target_text, user_text, score):
         responses = model.generate_content(prompt, stream=False)
         return responses.text
     except Exception as e:
-        return f"AI 錯誤: {str(e)}"
+        return handle_ai_error(e, model_name)
 
-# [新增功能] 接收 model_name 參數
 @st.cache_data(show_spinner=False)
 def get_word_info(_api_key, model_name, word, sentence):
     if not _api_key: return "⚠️ 請輸入 Google API Key"
@@ -233,9 +361,8 @@ def get_word_info(_api_key, model_name, word, sentence):
         responses = model.generate_content(prompt, stream=False)
         return responses.text
     except Exception as e:
-        return f"❌ 查詢失敗: {str(e)}"
+        return handle_ai_error(e, model_name)
 
-# [新增功能] 接收 model_name 參數
 def generate_quiz(api_key, model_name, word):
     if not api_key: return "錯誤：未檢測到 API Key"
     try:
@@ -243,22 +370,15 @@ def generate_quiz(api_key, model_name, word):
         model = genai.GenerativeModel(model_name)
         prompt = f"""
         請針對英文單字 "{word}" 設計一個「拼字填空題」。
-        
-        嚴格遵守以下格式規則：
-        Q: [英文句子，將 "{word}" 這個字挖空，並在挖空處用 `______ (該單字的繁體中文意思)` 來提示。例如：I walk on the ______ (街道).]
+        Q: [英文句子，將 "{word}" 這個字挖空，用 `______ (該單字的繁體中文意思)` 提示。]
         A: [整句英文句子的繁體中文翻譯]
         """
         responses = model.generate_content(prompt, stream=False)
-        
         raw_text = responses.text.strip()
-        if "Q:" in raw_text:
-            cleaned_text = raw_text[raw_text.find("Q:"):]
-            return cleaned_text
-        else:
-            return raw_text
-            
+        if "Q:" in raw_text: return raw_text[raw_text.find("Q:"):]
+        else: return raw_text
     except Exception as e:
-        return f"Google API 報錯: {str(e)}"
+        return handle_ai_error(e, model_name)
 
 def get_spelling_hint(word, attempts):
     length = len(word)
@@ -312,7 +432,7 @@ def get_offline_voices():
 # ==========================================
 inject_custom_css()
 
-# 初始化 State (包含自動偵測的模型清單)
+# 初始化 State
 if 'available_models' not in st.session_state: st.session_state.available_models = []
 if 'game_active' not in st.session_state: st.session_state.game_active = False
 if 'sentences' not in st.session_state: st.session_state.sentences = []
@@ -343,42 +463,36 @@ with st.sidebar:
     if google_api_key != st.session_state.saved_api_key:
         with open(KEY_FILE, "w") as f: f.write(google_api_key)
         st.session_state.saved_api_key = google_api_key
-        st.session_state.available_models = [] # Key 改變時重置清單
+        st.session_state.available_models = []
 
-    # [新增功能] 自動偵測模型
-    selected_model = "gemini-1.5-flash" # 預設備用值
+    # 自動偵測模型
+    selected_model = "gemini-1.5-flash"
     if google_api_key:
-        # 如果還沒抓過，就去抓
         if not st.session_state.available_models:
             try:
                 genai.configure(api_key=google_api_key)
                 all_models = list(genai.list_models())
-                # 過濾出支援生成的模型，去掉前綴
                 st.session_state.available_models = [m.name.replace("models/", "") for m in all_models if "generateContent" in m.supported_generation_methods]
-            except:
-                pass # 靜默失敗
+            except: pass
         
         if st.session_state.available_models:
-            # 優先選擇 flash
             default_idx = 0
             for i, name in enumerate(st.session_state.available_models):
                 if "1.5-flash" in name: 
                     default_idx = i
                     if "latest" in name: break
-            
-            st.success(f"✅ 已偵測到 {len(st.session_state.available_models)} 個可用模型")
+            st.success(f"✅ 已偵測到可用模型")
             selected_model = st.selectbox("🤖 選擇 AI 模型", st.session_state.available_models, index=default_idx)
         else:
-            # 抓不到就用手動輸入
-            st.warning("無法自動偵測，請確認 Key 是否正確")
+            st.warning("無法自動偵測，請確認 Key")
             selected_model = st.text_input("手動輸入模型", "gemini-1.5-flash-latest")
     else:
         st.warning("👉 請輸入 API Key 才能使用 AI 功能。")
     
     st.markdown("---")
-    app_mode = st.radio("選擇模式", ["📖 跟讀練習", "📝 拼字測驗 (AI出題)", "👂 英聽拼字測驗"], index=0)
+    # [修改] 加入新的模式選項
+    app_mode = st.radio("選擇模式", ["📖 跟讀練習", "📝 拼字測驗 (AI出題)", "👂 英聽拼字測驗", "📚 單字庫檢視"], index=0)
     
-    # 模式切換重置
     if st.session_state.last_app_mode != app_mode:
         st.session_state.quiz_data = None
         st.session_state.quiz_state = "QUESTION"
@@ -547,7 +661,7 @@ if app_mode == "📖 跟讀練習":
                 if cols[i % 5].button(word, key=f"w_{idx}_{i}", disabled=not google_api_key):
                     st.session_state.current_word_target = word
                     with st.spinner("🔍 AI 查詢中..."):
-                        # [新增功能] 使用選擇的模型
+                        # 使用選擇的模型
                         info = get_word_info(google_api_key, selected_model, word, display_text)
                         st.session_state.current_word_info = info
                         if "查詢失敗" not in info and "請輸入 API Key" not in info:
@@ -607,7 +721,7 @@ if app_mode == "📖 跟讀練習":
                     
                     adj_pitch = max(60, raw_pitch_score)
                     final_score = (score_text * 0.8) + (adj_pitch * 0.2)
-                    # [新增功能] 使用選擇的模型
+                    # 使用選擇的模型
                     feedback = get_ai_coach_feedback(google_api_key, selected_model, display_text, u_text, final_score)
 
                 if final_score >= 80: st.success(f"🎉 分數：{final_score:.0f}")
@@ -644,7 +758,7 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
                 info = target["info"]
 
                 with st.spinner(f"正在為 '{word}' 出題中..."):
-                    # [新增功能] 使用選擇的模型
+                    # 使用選擇的模型
                     q_text = generate_quiz(google_api_key, selected_model, word)
                     if q_text and "Q:" in q_text and "A:" in q_text:
                         st.session_state.quiz_data = {"word": word, "content": q_text, "original_info": info}
@@ -684,6 +798,16 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
             if st.session_state.quiz_state == "RESULT":
                 st.success(f"🎉 答對了！答案就是 **{data['word']}**")
                 
+                # 自動修復單字卡
+                if "待查詢" in data['original_info'] and google_api_key:
+                    with st.spinner("🤖 正在為您自動補上單字定義..."):
+                        # 使用選擇的模型
+                        new_info = get_word_info(google_api_key, selected_model, data['word'], f"The word is {data['word']}")
+                        if "查詢失敗" not in new_info:
+                            data['original_info'] = new_info
+                            add_word_to_vocab(data['word'], new_info)
+                            st.toast("✨ 單字卡已自動修復！")
+
                 try:
                     a_part = content.split("A:")[1].strip() if "A:" in content else "無翻譯"
                 except:
@@ -691,15 +815,6 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
                 st.info(f"💡 翻譯：{a_part}")
 
                 st.markdown("---")
-                # [新增功能] 自動修復單字卡
-                if "待查詢" in data['original_info'] and google_api_key:
-                    with st.spinner("🤖 正在為您自動補上單字定義..."):
-                        new_info = get_word_info(google_api_key, selected_model, data['word'], f"The word is {data['word']}")
-                        if "查詢失敗" not in new_info:
-                            data['original_info'] = new_info
-                            add_word_to_vocab(data['word'], new_info)
-                            st.toast("✨ 單字卡已自動修復！")
-
                 st.caption("📜 原始單字卡：")
                 original_html = data['original_info'].replace('\n', '<br>')
                 st.markdown(f'<div style="background-color:#fff9c4; padding:10px; border-radius:8px;">{original_html}</div>', unsafe_allow_html=True)
@@ -712,7 +827,7 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
                     word = target["word"]
                     info = target["info"]
                     with st.spinner(f"正在為 '{word}' 出題中..."):
-                        # [新增功能] 使用選擇的模型
+                        # 使用選擇的模型
                         q_text = generate_quiz(google_api_key, selected_model, word)
                         if q_text and "Q:" in q_text and "A:" in q_text:
                             st.session_state.quiz_data = {"word": word, "content": q_text, "original_info": info}
@@ -812,6 +927,7 @@ elif app_mode == "👂 英聽拼字測驗":
                 # [新增功能] 自動修復單字卡
                 if "待查詢" in data['original_info'] and google_api_key:
                     with st.spinner("🤖 正在為您自動補上單字定義..."):
+                        # 使用選擇的模型
                         new_info = get_word_info(google_api_key, selected_model, data['word'], f"The word is {data['word']}")
                         if "查詢失敗" not in new_info:
                             data['original_info'] = new_info
@@ -869,3 +985,43 @@ elif app_mode == "👂 英聽拼字測驗":
 
                 if st.session_state.quiz_last_msg:
                     st.markdown(f'<div class="hint-box">{st.session_state.quiz_last_msg}</div>', unsafe_allow_html=True)
+
+# ==========================================
+# [新增模式] 📚 單字庫檢視
+# ==========================================
+elif app_mode == "📚 單字庫檢視":
+    st.subheader("📚 完整單字庫列表")
+    vocab_list = load_vocab()
+    
+    if vocab_list:
+        # 轉成 DataFrame
+        df = pd.DataFrame(vocab_list)
+        
+        # 確保必要欄位存在 (避免舊資料報錯)
+        if "error_count" not in df.columns: df["error_count"] = 0
+        if "info" not in df.columns: df["info"] = ""
+        
+        # 整理顯示欄位，改名比較好看
+        df_display = df[["word", "error_count", "info"]].rename(columns={
+            "word": "單字",
+            "error_count": "錯誤次數",
+            "info": "詳細定義"
+        })
+        
+        # 排序：錯誤次數高的在上面
+        df_display = df_display.sort_values(by="錯誤次數", ascending=False)
+        
+        # 顯示統計數據
+        col1, col2 = st.columns(2)
+        col1.metric("總單字數", len(vocab_list))
+        col2.metric("曾拼錯單字數", len(df[df["error_count"] > 0]))
+        
+        # 顯示大表格，設定高度讓它可以滑動
+        st.dataframe(
+            df_display, 
+            use_container_width=True, 
+            height=600,  # 設定高度，超過會出現卷軸
+            hide_index=True
+        )
+    else:
+        st.info("📭 目前單字庫是空的，請先去「跟讀練習」加入單字！")
