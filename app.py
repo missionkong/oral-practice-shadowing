@@ -11,14 +11,14 @@ import speech_recognition as sr
 from gtts import gTTS
 import ssl
 import pandas as pd
-import matplotlib.pyplot as plt # 補上這行，否則語調圖表會報錯
+import matplotlib.pyplot as plt
 
 # [核心] 使用 Google Generative AI
 import google.generativeai as genai
 
 # 1. 設定頁面
 try:
-    st.set_page_config(page_title="AI 英文教練 Pro (最終UI版)", layout="wide", page_icon="🎓")
+    st.set_page_config(page_title="AI 英文教練 Pro (自動偵測+自動修復版)", layout="wide", page_icon="🎓")
 except:
     pass
 
@@ -61,10 +61,19 @@ def save_vocab_to_disk(vocab_list):
         json.dump(vocab_list, f, ensure_ascii=False, indent=4)
 
 def add_word_to_vocab(word, info):
+    # [修改] 支援更新現有單字的解釋 (為了解決"待查詢")
     if not word or "查詢失敗" in info or "請輸入 API Key" in info or "Exception" in info: return False
     vocab_list = load_vocab()
+    
+    # 檢查是否存在
     for v in vocab_list:
-        if v["word"].lower() == word.lower(): return False
+        if v["word"].lower() == word.lower():
+            # 如果單字存在，更新它的解釋
+            v["info"] = info
+            save_vocab_to_disk(vocab_list)
+            return True
+            
+    # 不存在則新增
     vocab_list.append({"word": word, "info": info, "error_count": 0})
     save_vocab_to_disk(vocab_list)
     return True
@@ -94,152 +103,31 @@ def process_imported_text(text_content):
     return unique_words
 
 # ==========================================
-# 1. UI 美化 (修正手機版配色問題)
+# 1. UI 美化
 # ==========================================
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* --- 全局背景 --- */
-        .stApp { 
-            background: linear-gradient(135deg, #fdfbf7 0%, #ebedee 100%); 
-            font-family: 'Microsoft JhengHei', sans-serif; 
-        }
-        
-        /* ====== 修正 1: 主畫面 (Main Area) ====== */
-        /* 強制將主畫面的所有文字設為深色，確保白底可見 */
-        .main .block-container h1, 
-        .main .block-container h2, 
-        .main .block-container h3, 
-        .main .block-container h4, 
-        .main .block-container p, 
-        .main .block-container div,
-        .main .block-container span,
-        .main .block-container label,
-        .main .block-container li,
-        .main .block-container .stMarkdown {
-            color: #333333 !important; /* 深灰色 */
-        }
-
-        /* ====== 修正 2: 側邊欄 (Sidebar) ====== */
-        [data-testid="stSidebar"] {
-            background-color: #263238 !important; /* 深藍灰色背景 */
-        }
-        
-        /* 強制側邊欄內的所有文字為白色 */
-        [data-testid="stSidebar"] h1, 
-        [data-testid="stSidebar"] h2, 
-        [data-testid="stSidebar"] h3, 
-        [data-testid="stSidebar"] p, 
-        [data-testid="stSidebar"] span, 
-        [data-testid="stSidebar"] div, 
-        [data-testid="stSidebar"] label,
-        [data-testid="stSidebar"] .stMarkdown {
-            color: #ffffff !important;
-        }
-        
-        /* 側邊欄的輸入框 (Input) 內部文字維持深色 (因為輸入框背景通常是白) */
-        [data-testid="stSidebar"] input {
-            color: #000000 !important;
-        }
-
-        /* --- 閱讀區塊樣式 --- */
-        .reading-box { 
-            font-size: 26px !important; 
-            font-weight: bold; 
-            color: #000000 !important; /* 純黑 */
-            line-height: 1.6; 
-            padding: 20px; 
-            background-color: #ffffff !important; 
-            border-left: 8px solid #4285F4; 
-            border-radius: 10px; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.15); 
-            margin-bottom: 20px; 
-            white-space: pre-wrap; 
-            font-family: 'Courier New', Courier, monospace; 
-        }
-        
-        /* --- 單字卡片 --- */
-        .definition-card { 
-            background-color: #fff9c4 !important; 
-            border: 2px solid #fbc02d; 
-            color: #3e2723 !important; 
-            padding: 15px; 
-            border-radius: 12px; 
-            margin-top: 15px; 
-            font-size: 18px; 
-        }
-        
-        /* --- 提示卡 --- */
-        .mobile-hint-card { 
-            background-color: #e3f2fd !important; 
-            border-left: 5px solid #2196f3; 
-            padding: 10px; 
-            border-radius: 8px; 
-            margin-bottom: 10px; 
-            font-size: 16px; 
-            font-weight: 600; 
-            color: #0d47a1 !important; 
-        }
-        
-        /* --- 測驗區塊 --- */
-        .quiz-box { 
-            background-color: #ffffff !important; 
-            border: 2px solid #4caf50; 
-            padding: 25px; 
-            border-radius: 15px; 
-            margin-top: 10px; 
-            box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
-            text-align: center;
-        }
-        .quiz-question { 
-            font-size: 24px; 
-            font-weight: bold; 
-            color: #1b5e20 !important; 
-            margin-bottom: 20px; 
-            line-height: 1.6; 
-        }
-        
-        /* --- 提示與排行榜 --- */
-        .hint-box { 
-            background-color: #ffebee !important; 
-            color: #c62828 !important; 
-            padding: 10px; 
-            border-radius: 5px; 
-            font-weight: bold; 
-            margin-top: 10px; 
-            border: 1px dashed #ef9a9a;
-        }
-        .leaderboard-box { 
-            background-color: #fff3e0 !important; 
-            padding: 10px; 
-            border-radius: 8px; 
-            border: 1px solid #ffcc80; 
-            margin-bottom: 15px; 
-            color: #e65100 !important; 
-        }
-        
-        /* --- AI 回饋 --- */
-        .ai-feedback-box { 
-            background-color: #f1f8e9 !important; 
-            border-left: 5px solid #8bc34a; 
-            padding: 15px; 
-            border-radius: 10px; 
-            color: #33691e !important; 
-            margin-top: 20px;
-        }
-        
-        /* --- 按鈕 --- */
-        div.stButton > button { 
-            width: 100%; 
-            border-radius: 8px; 
-            height: 3em; 
-            font-weight: bold; 
-        }
+        .stApp { background: linear-gradient(135deg, #fdfbf7 0%, #ebedee 100%); font-family: 'Microsoft JhengHei', sans-serif; }
+        .main .block-container h1, .main .block-container h2, .main .block-container h3, .main .block-container h4, .main .block-container p, .main .block-container div, .main .block-container span, .main .block-container label, .main .block-container li, .main .block-container .stMarkdown { color: #333333 !important; }
+        [data-testid="stSidebar"] { background-color: #263238 !important; }
+        [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span, [data-testid="stSidebar"] div, [data-testid="stSidebar"] label, [data-testid="stSidebar"] .stMarkdown { color: #ffffff !important; }
+        [data-testid="stSidebar"] input { color: #000000 !important; }
+        [data-testid="stSidebar"] .stSelectbox label { color: #ffffff !important; }
+        .reading-box { font-size: 26px !important; font-weight: bold; color: #000000 !important; line-height: 1.6; padding: 20px; background-color: #ffffff !important; border-left: 8px solid #4285F4; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.15); margin-bottom: 20px; white-space: pre-wrap; font-family: 'Courier New', Courier, monospace; }
+        .definition-card { background-color: #fff9c4 !important; border: 2px solid #fbc02d; color: #3e2723 !important; padding: 15px; border-radius: 12px; margin-top: 15px; font-size: 18px; }
+        .mobile-hint-card { background-color: #e3f2fd !important; border-left: 5px solid #2196f3; padding: 10px; border-radius: 8px; margin-bottom: 10px; font-size: 16px; font-weight: 600; color: #0d47a1 !important; }
+        .quiz-box { background-color: #ffffff !important; border: 2px solid #4caf50; padding: 25px; border-radius: 15px; margin-top: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; }
+        .quiz-question { font-size: 24px; font-weight: bold; color: #1b5e20 !important; margin-bottom: 20px; line-height: 1.6; }
+        .hint-box { background-color: #ffebee !important; color: #c62828 !important; padding: 10px; border-radius: 5px; font-weight: bold; margin-top: 10px; border: 1px dashed #ef9a9a; }
+        .leaderboard-box { background-color: #fff3e0 !important; padding: 10px; border-radius: 8px; border: 1px solid #ffcc80; margin-bottom: 15px; color: #e65100 !important; }
+        .ai-feedback-box { background-color: #f1f8e9 !important; border-left: 5px solid #8bc34a; padding: 15px; border-radius: 10px; color: #33691e !important; margin-top: 20px; }
+        div.stButton > button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; }
         </style>
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 核心功能
+# 2. 核心功能 (修改為接收 model_name)
 # ==========================================
 
 def split_text_smartly(text):
@@ -311,11 +199,12 @@ def plot_and_get_trend(teacher_path, student_path):
         return fig, raw_pitch_score, 0
     except: return None, 0, 0
 
-def get_ai_coach_feedback(api_key, target_text, user_text, score):
+# [新增功能] 接收 model_name 參數
+def get_ai_coach_feedback(api_key, model_name, target_text, user_text, score):
     if not api_key: return "⚠️ 請在側邊欄輸入 Google API Key"
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel(model_name)
         prompt = f"""
         你是一位溫暖的英文老師。
         目標句子："{target_text}"
@@ -333,23 +222,25 @@ def get_ai_coach_feedback(api_key, target_text, user_text, score):
     except Exception as e:
         return f"AI 錯誤: {str(e)}"
 
+# [新增功能] 接收 model_name 參數
 @st.cache_data(show_spinner=False)
-def get_word_info(_api_key, word, sentence):
+def get_word_info(_api_key, model_name, word, sentence):
     if not _api_key: return "⚠️ 請輸入 Google API Key"
     try:
         genai.configure(api_key=_api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel(model_name)
         prompt = f"解釋單字 '{word}' 在句子 '{sentence}' 中的意思。格式：🔊[{word}] KK音標\\n🏷️[詞性]\\n💡[繁中意思](簡潔)"
         responses = model.generate_content(prompt, stream=False)
         return responses.text
     except Exception as e:
         return f"❌ 查詢失敗: {str(e)}"
 
-def generate_quiz(api_key, word):
+# [新增功能] 接收 model_name 參數
+def generate_quiz(api_key, model_name, word):
     if not api_key: return "錯誤：未檢測到 API Key"
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel(model_name)
         prompt = f"""
         請針對英文單字 "{word}" 設計一個「拼字填空題」。
         
@@ -421,6 +312,8 @@ def get_offline_voices():
 # ==========================================
 inject_custom_css()
 
+# 初始化 State (包含自動偵測的模型清單)
+if 'available_models' not in st.session_state: st.session_state.available_models = []
 if 'game_active' not in st.session_state: st.session_state.game_active = False
 if 'sentences' not in st.session_state: st.session_state.sentences = []
 if 'current_index' not in st.session_state: st.session_state.current_index = 0
@@ -450,11 +343,37 @@ with st.sidebar:
     if google_api_key != st.session_state.saved_api_key:
         with open(KEY_FILE, "w") as f: f.write(google_api_key)
         st.session_state.saved_api_key = google_api_key
+        st.session_state.available_models = [] # Key 改變時重置清單
 
-    if not google_api_key:
-        st.warning("👉 請輸入 API Key 才能使用 AI 功能。")
+    # [新增功能] 自動偵測模型
+    selected_model = "gemini-1.5-flash" # 預設備用值
+    if google_api_key:
+        # 如果還沒抓過，就去抓
+        if not st.session_state.available_models:
+            try:
+                genai.configure(api_key=google_api_key)
+                all_models = list(genai.list_models())
+                # 過濾出支援生成的模型，去掉前綴
+                st.session_state.available_models = [m.name.replace("models/", "") for m in all_models if "generateContent" in m.supported_generation_methods]
+            except:
+                pass # 靜默失敗
+        
+        if st.session_state.available_models:
+            # 優先選擇 flash
+            default_idx = 0
+            for i, name in enumerate(st.session_state.available_models):
+                if "1.5-flash" in name: 
+                    default_idx = i
+                    if "latest" in name: break
+            
+            st.success(f"✅ 已偵測到 {len(st.session_state.available_models)} 個可用模型")
+            selected_model = st.selectbox("🤖 選擇 AI 模型", st.session_state.available_models, index=default_idx)
+        else:
+            # 抓不到就用手動輸入
+            st.warning("無法自動偵測，請確認 Key 是否正確")
+            selected_model = st.text_input("手動輸入模型", "gemini-1.5-flash-latest")
     else:
-        st.success("✅ API Key 已載入！")
+        st.warning("👉 請輸入 API Key 才能使用 AI 功能。")
     
     st.markdown("---")
     app_mode = st.radio("選擇模式", ["📖 跟讀練習", "📝 拼字測驗 (AI出題)", "👂 英聽拼字測驗"], index=0)
@@ -628,7 +547,8 @@ if app_mode == "📖 跟讀練習":
                 if cols[i % 5].button(word, key=f"w_{idx}_{i}", disabled=not google_api_key):
                     st.session_state.current_word_target = word
                     with st.spinner("🔍 AI 查詢中..."):
-                        info = get_word_info(google_api_key, word, display_text)
+                        # [新增功能] 使用選擇的模型
+                        info = get_word_info(google_api_key, selected_model, word, display_text)
                         st.session_state.current_word_info = info
                         if "查詢失敗" not in info and "請輸入 API Key" not in info:
                             w_path = speak_google(word, 1.0)
@@ -687,7 +607,8 @@ if app_mode == "📖 跟讀練習":
                     
                     adj_pitch = max(60, raw_pitch_score)
                     final_score = (score_text * 0.8) + (adj_pitch * 0.2)
-                    feedback = get_ai_coach_feedback(google_api_key, display_text, u_text, final_score)
+                    # [新增功能] 使用選擇的模型
+                    feedback = get_ai_coach_feedback(google_api_key, selected_model, display_text, u_text, final_score)
 
                 if final_score >= 80: st.success(f"🎉 分數：{final_score:.0f}")
                 else: st.info(f"💪 分數：{final_score:.0f}")
@@ -723,7 +644,8 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
                 info = target["info"]
 
                 with st.spinner(f"正在為 '{word}' 出題中..."):
-                    q_text = generate_quiz(google_api_key, word)
+                    # [新增功能] 使用選擇的模型
+                    q_text = generate_quiz(google_api_key, selected_model, word)
                     if q_text and "Q:" in q_text and "A:" in q_text:
                         st.session_state.quiz_data = {"word": word, "content": q_text, "original_info": info}
                         st.session_state.quiz_state = "QUESTION"
@@ -769,6 +691,15 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
                 st.info(f"💡 翻譯：{a_part}")
 
                 st.markdown("---")
+                # [新增功能] 自動修復單字卡
+                if "待查詢" in data['original_info'] and google_api_key:
+                    with st.spinner("🤖 正在為您自動補上單字定義..."):
+                        new_info = get_word_info(google_api_key, selected_model, data['word'], f"The word is {data['word']}")
+                        if "查詢失敗" not in new_info:
+                            data['original_info'] = new_info
+                            add_word_to_vocab(data['word'], new_info)
+                            st.toast("✨ 單字卡已自動修復！")
+
                 st.caption("📜 原始單字卡：")
                 original_html = data['original_info'].replace('\n', '<br>')
                 st.markdown(f'<div style="background-color:#fff9c4; padding:10px; border-radius:8px;">{original_html}</div>', unsafe_allow_html=True)
@@ -781,7 +712,8 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
                     word = target["word"]
                     info = target["info"]
                     with st.spinner(f"正在為 '{word}' 出題中..."):
-                        q_text = generate_quiz(google_api_key, word)
+                        # [新增功能] 使用選擇的模型
+                        q_text = generate_quiz(google_api_key, selected_model, word)
                         if q_text and "Q:" in q_text and "A:" in q_text:
                             st.session_state.quiz_data = {"word": word, "content": q_text, "original_info": info}
                             st.session_state.quiz_state = "QUESTION"
@@ -877,6 +809,15 @@ elif app_mode == "👂 英聽拼字測驗":
                 st.success(f"🎉 答對了！答案就是 **{data['word']}**")
                 
                 st.markdown("---")
+                # [新增功能] 自動修復單字卡
+                if "待查詢" in data['original_info'] and google_api_key:
+                    with st.spinner("🤖 正在為您自動補上單字定義..."):
+                        new_info = get_word_info(google_api_key, selected_model, data['word'], f"The word is {data['word']}")
+                        if "查詢失敗" not in new_info:
+                            data['original_info'] = new_info
+                            add_word_to_vocab(data['word'], new_info)
+                            st.toast("✨ 單字卡已自動修復！")
+
                 st.caption("📜 原始單字卡：")
                 original_html = data['original_info'].replace('\n', '<br>')
                 st.markdown(f'<div style="background-color:#fff9c4; padding:10px; border-radius:8px;">{original_html}</div>', unsafe_allow_html=True)
