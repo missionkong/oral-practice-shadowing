@@ -16,7 +16,7 @@ import google.generativeai as genai
 
 # 1. 設定頁面
 try:
-    st.set_page_config(page_title="AI 英文教練 Pro (穩定修復版)", layout="wide", page_icon="🎓")
+    st.set_page_config(page_title="AI 英文教練 Pro (手機優化版)", layout="wide", page_icon="🎓")
 except:
     pass
 
@@ -80,23 +80,142 @@ def increment_error_count(target_word):
         save_vocab_to_disk(vocab_list)
 
 # ==========================================
-# 1. UI 美化
+# 1. UI 美化 (手機版色彩對比優化)
 # ==========================================
 def inject_custom_css():
     st.markdown("""
         <style>
-        .stApp { background: linear-gradient(135deg, #fdfbf7 0%, #ebedee 100%); font-family: 'Microsoft JhengHei', sans-serif; }
-        .reading-box { font-size: 26px !important; font-weight: bold; color: #2c3e50; line-height: 1.6; padding: 20px; background-color: #ffffff; border-left: 8px solid #4285F4; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; white-space: pre-wrap; font-family: 'Courier New', Courier, monospace; }
-        .definition-card { background-color: #fff9c4; border: 2px solid #fbc02d; color: #5d4037; padding: 15px; border-radius: 12px; margin-top: 15px; font-size: 18px; }
-        .mobile-hint-card { background-color: #e3f2fd; border-left: 5px solid #2196f3; padding: 10px; border-radius: 8px; margin-bottom: 10px; font-size: 16px; font-weight: 600; color: #0d47a1; }
-        .quiz-box { background-color: #ffffff; border: 2px solid #4caf50; padding: 25px; border-radius: 15px; margin-top: 10px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center;}
-        .quiz-question { font-size: 24px; font-weight: bold; color: #1565c0; margin-bottom: 20px; line-height: 1.6; }
-        .hint-box { background-color: #ffebee; color: #c62828; padding: 10px; border-radius: 5px; font-weight: bold; margin-top: 10px; border: 1px dashed #ef9a9a;}
-        .leaderboard-box { background-color: #fff3e0; padding: 10px; border-radius: 8px; border: 1px solid #ffcc80; margin-bottom: 15px; }
-        .backup-alert { background-color: #e8f5e9; border: 2px solid #66bb6a; padding: 20px; border-radius: 15px; text-align: center; margin-top: 20px; margin-bottom: 20px; }
-        div.stButton > button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; }
-        .ai-feedback-box { background-color: #f1f8e9; border-left: 5px solid #8bc34a; padding: 15px; border-radius: 10px; color: #33691e; margin-top: 20px;}
-        .diff-box { background-color: #fff; border: 2px dashed #bdc3c7; padding: 15px; border-radius: 10px; font-size: 18px; }
+        /* 全局背景設定 */
+        .stApp { 
+            background: linear-gradient(135deg, #fdfbf7 0%, #ebedee 100%); 
+            font-family: 'Microsoft JhengHei', sans-serif; 
+        }
+        
+        /* 閱讀區塊：白底深字，陰影加強 */
+        .reading-box { 
+            font-size: 26px !important; 
+            font-weight: bold; 
+            color: #2c3e50 !important; /* 強制深藍灰色 */
+            line-height: 1.6; 
+            padding: 20px; 
+            background-color: #ffffff !important; /* 強制純白背景 */
+            border-left: 8px solid #4285F4; 
+            border-radius: 10px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.15); /* 增加陰影立體感 */
+            margin-bottom: 20px; 
+            white-space: pre-wrap; 
+            font-family: 'Courier New', Courier, monospace; 
+        }
+        
+        /* 單字卡片：淺黃底深棕字 */
+        .definition-card { 
+            background-color: #fffde7 !important; 
+            border: 2px solid #fbc02d; 
+            color: #3e2723 !important; /* 深咖啡色文字 */
+            padding: 15px; 
+            border-radius: 12px; 
+            margin-top: 15px; 
+            font-size: 18px; 
+        }
+        
+        /* 手機版提示卡：淺藍底深藍字 */
+        .mobile-hint-card { 
+            background-color: #e3f2fd !important; 
+            border-left: 5px solid #2196f3; 
+            padding: 15px; 
+            border-radius: 8px; 
+            margin-bottom: 15px; 
+            font-size: 18px; 
+            font-weight: 600; 
+            color: #0d47a1 !important; /* 深藍色文字 */
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        /* 測驗區塊：白底黑字 */
+        .quiz-box { 
+            background-color: #ffffff !important; 
+            border: 2px solid #4caf50; 
+            padding: 25px; 
+            border-radius: 15px; 
+            margin-top: 10px; 
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
+            text-align: center;
+            color: #000000 !important;
+        }
+        
+        /* 測驗問題文字 */
+        .quiz-question { 
+            font-size: 24px; 
+            font-weight: bold; 
+            color: #1565c0 !important; 
+            margin-bottom: 20px; 
+            line-height: 1.6; 
+        }
+        
+        /* 錯誤提示框：淺紅底深紅字 */
+        .hint-box { 
+            background-color: #ffebee !important; 
+            color: #c62828 !important; 
+            padding: 15px; 
+            border-radius: 8px; 
+            font-weight: bold; 
+            margin-top: 15px; 
+            border: 2px dashed #ef9a9a;
+            font-size: 18px;
+        }
+        
+        /* 排行榜：淺橘底深橘字 */
+        .leaderboard-box { 
+            background-color: #fff3e0 !important; 
+            padding: 10px; 
+            border-radius: 8px; 
+            border: 1px solid #ffcc80; 
+            margin-bottom: 15px; 
+            color: #e65100 !important;
+        }
+        
+        /* 備份提示 */
+        .backup-alert { 
+            background-color: #e8f5e9 !important; 
+            border: 2px solid #66bb6a; 
+            padding: 20px; 
+            border-radius: 15px; 
+            text-align: center; 
+            margin-top: 20px; 
+            margin-bottom: 20px; 
+            color: #1b5e20 !important;
+        }
+        
+        /* 按鈕樣式 */
+        div.stButton > button { 
+            width: 100%; 
+            border-radius: 8px; 
+            height: 3em; 
+            font-weight: bold; 
+            font-size: 16px;
+        }
+        
+        /* AI 回饋區塊 */
+        .ai-feedback-box { 
+            background-color: #f1f8e9 !important; 
+            border-left: 5px solid #8bc34a; 
+            padding: 15px; 
+            border-radius: 10px; 
+            color: #33691e !important; 
+            margin-top: 20px;
+            font-size: 16px;
+            line-height: 1.6;
+        }
+        
+        /* 差異比對框 */
+        .diff-box { 
+            background-color: #ffffff !important; 
+            border: 2px dashed #bdc3c7; 
+            padding: 15px; 
+            border-radius: 10px; 
+            font-size: 18px; 
+            color: #333333 !important;
+        }
         </style>
     """, unsafe_allow_html=True)
 
@@ -307,7 +426,6 @@ if 'start_time' not in st.session_state: st.session_state.start_time = None
 if 'quiz_attempts' not in st.session_state: st.session_state.quiz_attempts = 0
 if 'quiz_last_msg' not in st.session_state: st.session_state.quiz_last_msg = ""
 if 'quiz_error_counted' not in st.session_state: st.session_state.quiz_error_counted = False
-# [新增] 記錄最後一次的模式，用於切換時重置
 if 'last_app_mode' not in st.session_state: st.session_state.last_app_mode = None
 
 if 'saved_api_key' not in st.session_state:
@@ -331,7 +449,6 @@ with st.sidebar:
     st.markdown("---")
     app_mode = st.radio("選擇模式", ["📖 跟讀練習", "📝 拼字測驗 (AI出題)", "👂 英聽拼字測驗"], index=0)
     
-    # [關鍵修復] 偵測模式切換，強制重置 quiz_data，避免 KeyError
     if st.session_state.last_app_mode != app_mode:
         st.session_state.quiz_data = None
         st.session_state.quiz_state = "QUESTION"
@@ -381,7 +498,7 @@ with st.sidebar:
             except:
                  st.error("還原失敗，格式錯誤。")
 
-st.title("🎤 AI 英文教練 Pro (穩定修復版)")
+st.title("🎤 AI 英文教練 Pro (手機優化版)")
 
 # ==========================================
 # 模式 A: 跟讀練習
@@ -589,11 +706,11 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
         if st.session_state.quiz_data:
             data = st.session_state.quiz_data
             
-            # [關鍵修復] 確保不是英聽模式的資料 (英聽資料沒有 content)
+            # [雙重防呆]
             if 'content' not in data:
-                st.warning("偵測到模式切換，請重新點擊出題按鈕。")
+                st.warning("⚠️ 偵測到模式切換，請重新點擊上方紅色按鈕出題。")
                 st.session_state.quiz_data = None
-                st.rerun()
+                st.stop()
             
             content = data["content"]
             try:
@@ -604,7 +721,7 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
             st.markdown(f"""
             <div class="quiz-box">
                 <h3>❓ 填空拼字：</h3>
-                <p style="font-size:22px; font-weight:bold; color:#1565c0;">{q_part}</p>
+                <p class="quiz-question">{q_part}</p>
             </div>
             """, unsafe_allow_html=True)
             
@@ -626,7 +743,6 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
                 if w_path: st.audio(w_path, format='audio/mp3')
                 
                 if st.button("下一題", use_container_width=True):
-                    # [重置並出題]
                     target = random.choice(vocab_list)
                     word = target["word"]
                     info = target["info"]
@@ -665,6 +781,9 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
                 
                 with c_giveup:
                     if st.button("🏳️ 放棄，看答案", use_container_width=True):
+                        if not st.session_state.quiz_error_counted:
+                            increment_error_count(data['word'])
+                            st.session_state.quiz_error_counted = True
                         st.session_state.quiz_state = "RESULT"
                         st.rerun()
 
@@ -703,11 +822,11 @@ elif app_mode == "👂 英聽拼字測驗":
         if st.session_state.quiz_data:
             data = st.session_state.quiz_data
             
-            # [關鍵修復] 確保不是拼字模式的資料
+            # [雙重防呆]
             if 'audio' not in data:
-                st.warning("偵測到模式切換，請重新點擊播放按鈕。")
+                st.warning("⚠️ 偵測到模式切換，請重新點擊上方紅色按鈕播放題目。")
                 st.session_state.quiz_data = None
-                st.rerun()
+                st.stop()
 
             st.markdown("""
             <div class="quiz-box">
@@ -715,7 +834,6 @@ elif app_mode == "👂 英聽拼字測驗":
             </div>
             """, unsafe_allow_html=True)
             
-            # [關鍵修復] 確保 audio 存在
             if 'audio' in data and data['audio']:
                 st.audio(data['audio'], format='audio/mp3')
             else:
@@ -730,7 +848,6 @@ elif app_mode == "👂 英聽拼字測驗":
                 st.markdown(f'<div style="background-color:#fff9c4; padding:10px; border-radius:8px;">{original_html}</div>', unsafe_allow_html=True)
                 
                 if st.button("下一題", use_container_width=True):
-                    # [關鍵修復] 下一題也必須重新生成語音
                     target = random.choice(vocab_list)
                     word = target["word"]
                     info = target["info"]
@@ -769,6 +886,9 @@ elif app_mode == "👂 英聽拼字測驗":
                 
                 with c_giveup:
                     if st.button("🏳️ 放棄，看答案", use_container_width=True):
+                        if not st.session_state.quiz_error_counted:
+                            increment_error_count(data['word'])
+                            st.session_state.quiz_error_counted = True
                         st.session_state.quiz_state = "RESULT"
                         st.rerun()
 
