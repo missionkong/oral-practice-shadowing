@@ -16,7 +16,7 @@ import google.generativeai as genai
 
 # 1. 設定頁面
 try:
-    st.set_page_config(page_title="AI 英文教練 Pro (手機優化版)", layout="wide", page_icon="🎓")
+    st.set_page_config(page_title="AI 英文教練 Pro (手機對比修復版)", layout="wide", page_icon="🎓")
 except:
     pass
 
@@ -80,90 +80,92 @@ def increment_error_count(target_word):
         save_vocab_to_disk(vocab_list)
 
 # ==========================================
-# 1. UI 美化 (手機版色彩對比優化)
+# 1. UI 美化 (針對手機可讀性強化)
 # ==========================================
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* 全局背景設定 */
-        .stApp { 
-            background: linear-gradient(135deg, #fdfbf7 0%, #ebedee 100%); 
-            font-family: 'Microsoft JhengHei', sans-serif; 
+        /* 強制全局文字顏色為深色，解決手機深色模式下文字消失的問題 */
+        .stApp, .stMarkdown, .stText, h1, h2, h3, h4, h5, h6, p, span, div {
+            color: #333333 !important; 
         }
         
-        /* 閱讀區塊：白底深字，陰影加強 */
+        /* 背景漸層 */
+        .stApp { 
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); 
+            font-family: 'Microsoft JhengHei', sans-serif; 
+        }
+
+        /* 閱讀區塊：白底黑字，邊框加強 */
         .reading-box { 
-            font-size: 26px !important; 
-            font-weight: bold; 
-            color: #2c3e50 !important; /* 強制深藍灰色 */
+            font-size: 20px !important; 
+            font-weight: 500; 
+            color: #000000 !important; /* 純黑字 */
             line-height: 1.6; 
             padding: 20px; 
-            background-color: #ffffff !important; /* 強制純白背景 */
+            background-color: #ffffff !important; 
+            border: 2px solid #e0e0e0;
             border-left: 8px solid #4285F4; 
             border-radius: 10px; 
-            box-shadow: 0 4px 10px rgba(0,0,0,0.15); /* 增加陰影立體感 */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
             margin-bottom: 20px; 
             white-space: pre-wrap; 
             font-family: 'Courier New', Courier, monospace; 
         }
-        
+
         /* 單字卡片：淺黃底深棕字 */
         .definition-card { 
-            background-color: #fffde7 !important; 
+            background-color: #fff9c4 !important; 
             border: 2px solid #fbc02d; 
-            color: #3e2723 !important; /* 深咖啡色文字 */
+            color: #5d4037 !important; 
             padding: 15px; 
             border-radius: 12px; 
             margin-top: 15px; 
             font-size: 18px; 
         }
-        
+
         /* 手機版提示卡：淺藍底深藍字 */
         .mobile-hint-card { 
             background-color: #e3f2fd !important; 
             border-left: 5px solid #2196f3; 
-            padding: 15px; 
+            padding: 12px; 
             border-radius: 8px; 
-            margin-bottom: 15px; 
-            font-size: 18px; 
+            margin-bottom: 10px; 
+            font-size: 16px; 
             font-weight: 600; 
-            color: #0d47a1 !important; /* 深藍色文字 */
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            color: #0d47a1 !important; 
         }
-        
+
         /* 測驗區塊：白底黑字 */
         .quiz-box { 
             background-color: #ffffff !important; 
             border: 2px solid #4caf50; 
-            padding: 25px; 
+            padding: 20px; 
             border-radius: 15px; 
             margin-top: 10px; 
             box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
             text-align: center;
-            color: #000000 !important;
         }
         
-        /* 測驗問題文字 */
         .quiz-question { 
-            font-size: 24px; 
+            font-size: 22px; 
             font-weight: bold; 
-            color: #1565c0 !important; 
+            color: #1b5e20 !important; /* 深綠色 */
             margin-bottom: 20px; 
             line-height: 1.6; 
         }
-        
-        /* 錯誤提示框：淺紅底深紅字 */
+
+        /* 錯誤提示框：淺紅底紅字 */
         .hint-box { 
             background-color: #ffebee !important; 
-            color: #c62828 !important; 
-            padding: 15px; 
-            border-radius: 8px; 
+            color: #b71c1c !important; 
+            padding: 10px; 
+            border-radius: 5px; 
             font-weight: bold; 
-            margin-top: 15px; 
-            border: 2px dashed #ef9a9a;
-            font-size: 18px;
+            margin-top: 10px; 
+            border: 1px dashed #ef9a9a;
         }
-        
+
         /* 排行榜：淺橘底深橘字 */
         .leaderboard-box { 
             background-color: #fff3e0 !important; 
@@ -173,28 +175,16 @@ def inject_custom_css():
             margin-bottom: 15px; 
             color: #e65100 !important;
         }
-        
-        /* 備份提示 */
-        .backup-alert { 
-            background-color: #e8f5e9 !important; 
-            border: 2px solid #66bb6a; 
-            padding: 20px; 
-            border-radius: 15px; 
-            text-align: center; 
-            margin-top: 20px; 
-            margin-bottom: 20px; 
-            color: #1b5e20 !important;
-        }
-        
+
         /* 按鈕樣式 */
         div.stButton > button { 
             width: 100%; 
             border-radius: 8px; 
             height: 3em; 
             font-weight: bold; 
-            font-size: 16px;
+            color: #ffffff !important; /* 按鈕文字維持白色 */
         }
-        
+
         /* AI 回饋區塊 */
         .ai-feedback-box { 
             background-color: #f1f8e9 !important; 
@@ -203,18 +193,16 @@ def inject_custom_css():
             border-radius: 10px; 
             color: #33691e !important; 
             margin-top: 20px;
-            font-size: 16px;
-            line-height: 1.6;
         }
-        
+
         /* 差異比對框 */
         .diff-box { 
-            background-color: #ffffff !important; 
+            background-color: #fff !important; 
             border: 2px dashed #bdc3c7; 
             padding: 15px; 
             border-radius: 10px; 
             font-size: 18px; 
-            color: #333333 !important;
+            color: #333 !important;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -449,6 +437,7 @@ with st.sidebar:
     st.markdown("---")
     app_mode = st.radio("選擇模式", ["📖 跟讀練習", "📝 拼字測驗 (AI出題)", "👂 英聽拼字測驗"], index=0)
     
+    # [看門狗邏輯] 偵測模式切換，強制重置 quiz_data
     if st.session_state.last_app_mode != app_mode:
         st.session_state.quiz_data = None
         st.session_state.quiz_state = "QUESTION"
@@ -498,7 +487,7 @@ with st.sidebar:
             except:
                  st.error("還原失敗，格式錯誤。")
 
-st.title("🎤 AI 英文教練 Pro (手機優化版)")
+st.title("🎤 AI 英文教練 Pro (手機對比修復版)")
 
 # ==========================================
 # 模式 A: 跟讀練習
