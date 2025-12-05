@@ -10,13 +10,14 @@ import time
 import speech_recognition as sr
 from gtts import gTTS
 import ssl
+import pandas as pd # 新增 pandas 用於處理 CSV
 
 # [核心] 使用 Google Generative AI
 import google.generativeai as genai
 
 # 1. 設定頁面
 try:
-    st.set_page_config(page_title="AI 英文教練 Pro (手機對比修復版)", layout="wide", page_icon="🎓")
+    st.set_page_config(page_title="AI 英文教練 Pro (匯入增強版)", layout="wide", page_icon="🎓")
 except:
     pass
 
@@ -61,8 +62,10 @@ def save_vocab_to_disk(vocab_list):
 def add_word_to_vocab(word, info):
     if not word or "查詢失敗" in info or "請輸入 API Key" in info or "Exception" in info: return False
     vocab_list = load_vocab()
+    # 檢查是否已存在 (不分大小寫)
     for v in vocab_list:
-        if v["word"] == word: return False
+        if v["word"].lower() == word.lower(): return False
+    
     vocab_list.append({"word": word, "info": info, "error_count": 0})
     save_vocab_to_disk(vocab_list)
     return True
@@ -79,32 +82,75 @@ def increment_error_count(target_word):
     if updated:
         save_vocab_to_disk(vocab_list)
 
+# [新功能] 處理匯入的檔案內容
+def process_imported_text(text_content):
+    # 1. 使用 Regex 只保留英文字母和空格/換行
+    # [a-zA-Z]+ 匹配一個或多個英文字母
+    words = re.findall(r'\b[a-zA-Z]+\b', text_content)
+    
+    # 2. 過濾掉過短的字 (例如 a, I 這種單字以外的雜訊) 或保留
+    # 這裡假設保留所有長度 >= 2 的單字
+    valid_words = [w for w in words if len(w) >= 2]
+    
+    # 3. 去重 (保留順序)
+    seen = set()
+    unique_words = []
+    for w in valid_words:
+        w_lower = w.lower()
+        if w_lower not in seen:
+            seen.add(w_lower)
+            unique_words.append(w) # 這裡保留原始大小寫
+            
+    return unique_words
+
 # ==========================================
-# 1. UI 美化 (針對手機可讀性強化)
+# 1. UI 美化 (包含手機優化)
 # ==========================================
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* 強制全局文字顏色為深色，解決手機深色模式下文字消失的問題 */
-        .stApp, .stMarkdown, .stText, h1, h2, h3, h4, h5, h6, p, span, div {
-            color: #333333 !important; 
-        }
-        
-        /* 背景漸層 */
+        /* 全局設定 */
         .stApp { 
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); 
+            background: linear-gradient(135deg, #fdfbf7 0%, #ebedee 100%); 
             font-family: 'Microsoft JhengHei', sans-serif; 
         }
+        
+        /* 強制主區域文字深色 */
+        .main .block-container h1, 
+        .main .block-container h2, 
+        .main .block-container h3, 
+        .main .block-container p, 
+        .main .block-container div,
+        .main .block-container span,
+        .main .block-container label {
+            color: #333333 !important;
+        }
 
-        /* 閱讀區塊：白底黑字，邊框加強 */
+        /* 側邊欄樣式鎖定 (深色背景，淺色文字) */
+        [data-testid="stSidebar"] {
+            background-color: #263238 !important; 
+        }
+        [data-testid="stSidebar"] h1, 
+        [data-testid="stSidebar"] h2, 
+        [data-testid="stSidebar"] h3, 
+        [data-testid="stSidebar"] p, 
+        [data-testid="stSidebar"] span, 
+        [data-testid="stSidebar"] div, 
+        [data-testid="stSidebar"] label {
+            color: #ffffff !important;
+        }
+        [data-testid="stSidebar"] input {
+             color: #333333 !important;
+        }
+
+        /* 閱讀區塊 */
         .reading-box { 
-            font-size: 20px !important; 
-            font-weight: 500; 
-            color: #000000 !important; /* 純黑字 */
+            font-size: 26px !important; 
+            font-weight: bold; 
+            color: #2c3e50 !important; 
             line-height: 1.6; 
             padding: 20px; 
             background-color: #ffffff !important; 
-            border: 2px solid #e0e0e0;
             border-left: 8px solid #4285F4; 
             border-radius: 10px; 
             box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
@@ -112,8 +158,8 @@ def inject_custom_css():
             white-space: pre-wrap; 
             font-family: 'Courier New', Courier, monospace; 
         }
-
-        /* 單字卡片：淺黃底深棕字 */
+        
+        /* 單字卡片 */
         .definition-card { 
             background-color: #fff9c4 !important; 
             border: 2px solid #fbc02d; 
@@ -123,69 +169,45 @@ def inject_custom_css():
             margin-top: 15px; 
             font-size: 18px; 
         }
-
-        /* 手機版提示卡：淺藍底深藍字 */
-        .mobile-hint-card { 
-            background-color: #e3f2fd !important; 
-            border-left: 5px solid #2196f3; 
-            padding: 12px; 
-            border-radius: 8px; 
-            margin-bottom: 10px; 
-            font-size: 16px; 
-            font-weight: 600; 
-            color: #0d47a1 !important; 
-        }
-
-        /* 測驗區塊：白底黑字 */
+        
+        /* 測驗區塊 */
         .quiz-box { 
             background-color: #ffffff !important; 
             border: 2px solid #4caf50; 
-            padding: 20px; 
+            padding: 25px; 
             border-radius: 15px; 
             margin-top: 10px; 
             box-shadow: 0 4px 10px rgba(0,0,0,0.1); 
             text-align: center;
         }
-        
         .quiz-question { 
-            font-size: 22px; 
+            font-size: 24px; 
             font-weight: bold; 
-            color: #1b5e20 !important; /* 深綠色 */
+            color: #1565c0 !important; 
             margin-bottom: 20px; 
             line-height: 1.6; 
         }
-
-        /* 錯誤提示框：淺紅底紅字 */
+        
+        /* 錯誤提示框 */
         .hint-box { 
             background-color: #ffebee !important; 
-            color: #b71c1c !important; 
+            color: #c62828 !important; 
             padding: 10px; 
             border-radius: 5px; 
             font-weight: bold; 
             margin-top: 10px; 
             border: 1px dashed #ef9a9a;
         }
-
-        /* 排行榜：淺橘底深橘字 */
-        .leaderboard-box { 
-            background-color: #fff3e0 !important; 
-            padding: 10px; 
-            border-radius: 8px; 
-            border: 1px solid #ffcc80; 
-            margin-bottom: 15px; 
-            color: #e65100 !important;
-        }
-
-        /* 按鈕樣式 */
+        
+        /* 按鈕 */
         div.stButton > button { 
             width: 100%; 
             border-radius: 8px; 
             height: 3em; 
             font-weight: bold; 
-            color: #ffffff !important; /* 按鈕文字維持白色 */
         }
-
-        /* AI 回饋區塊 */
+        
+        /* AI 回饋 */
         .ai-feedback-box { 
             background-color: #f1f8e9 !important; 
             border-left: 5px solid #8bc34a; 
@@ -193,16 +215,6 @@ def inject_custom_css():
             border-radius: 10px; 
             color: #33691e !important; 
             margin-top: 20px;
-        }
-
-        /* 差異比對框 */
-        .diff-box { 
-            background-color: #fff !important; 
-            border: 2px dashed #bdc3c7; 
-            padding: 15px; 
-            border-radius: 10px; 
-            font-size: 18px; 
-            color: #333 !important;
         }
         </style>
     """, unsafe_allow_html=True)
@@ -472,12 +484,42 @@ with st.sidebar:
             st.caption("目前沒有拼錯紀錄，繼續保持！")
 
     st.markdown("---")
-    with st.expander("💾 單字庫管理", expanded=False):
+    
+    # [新增] 外來單字庫匯入區
+    with st.expander("📤 匯入外部單字檔", expanded=False):
+        uploaded_txt = st.file_uploader("上傳純文字或CSV檔", type=["txt", "csv"])
+        if uploaded_txt:
+            if st.button("開始匯入分析"):
+                # 讀取檔案內容
+                stringio = uploaded_txt.getvalue().decode("utf-8")
+                
+                # 呼叫資料清洗邏輯
+                new_words = process_imported_text(stringio)
+                
+                if not new_words:
+                    st.warning("⚠️ 檔案中找不到有效的英文單字。")
+                else:
+                    added_count = 0
+                    for w in new_words:
+                        # 預設資訊先填 "待查詢"，讓使用者在練習時自己點擊查單字
+                        # 這樣可以避免一次消耗大量 API 配額，也不會讓匯入卡太久
+                        success = add_word_to_vocab(w, "💡 待查詢... (請在練習模式點擊查詢)")
+                        if success:
+                            added_count += 1
+                    
+                    if added_count > 0:
+                        st.success(f"🎉 成功匯入 {added_count} 個新單字！")
+                        time.sleep(1) # 讓使用者看到訊息後再重整
+                        st.rerun()
+                    else:
+                        st.info("這些單字都已經在單字庫裡囉！")
+
+    with st.expander("💾 單字庫備份與還原", expanded=False):
         st.write(f"目前單字：**{len(vocab_list)}** 個")
         if vocab_list:
             json_str = json.dumps(vocab_list, ensure_ascii=False, indent=4)
             st.download_button("📥 下載備份 (JSON)", json_str, "my_vocab.json", "application/json")
-        uploaded_file = st.file_uploader("📤 上傳還原", type=["json"])
+        uploaded_file = st.file_uploader("📤 上傳備份檔", type=["json"])
         if uploaded_file:
             try:
                 data = json.load(uploaded_file)
@@ -487,7 +529,7 @@ with st.sidebar:
             except:
                  st.error("還原失敗，格式錯誤。")
 
-st.title("🎤 AI 英文教練 Pro (手機對比修復版)")
+st.title("🎤 AI 英文教練 Pro (匯入增強版)")
 
 # ==========================================
 # 模式 A: 跟讀練習
@@ -593,293 +635,4 @@ if app_mode == "📖 跟讀練習":
                             st.session_state.current_word_audio = None
             
             if not google_api_key:
-                 st.warning("👉 請先在側邊欄輸入 API Key，才能使用單字查詢功能。")
-
-            if st.session_state.current_word_info:
-                info_html = st.session_state.current_word_info.replace('\n', '<br>')
-                st.markdown(f'<div class="definition-card">{info_html}</div>', unsafe_allow_html=True)
-                
-                c_p, c_s = st.columns([4, 1])
-                with c_p:
-                    if st.session_state.current_word_audio:
-                        st.audio(st.session_state.current_word_audio, format='audio/mp3')
-                with c_s:
-                    if "查詢失敗" not in st.session_state.current_word_info and "請輸入 API Key" not in st.session_state.current_word_info:
-                        if st.button("⭐ 收藏加入單字庫", use_container_width=True, type="primary"):
-                            saved = add_word_to_vocab(st.session_state.current_word_target, st.session_state.current_word_info)
-                            if saved: st.toast("✅ 已成功收藏！")
-                            else: st.toast("⚠️ 單字庫裡已經有囉！")
-
-            st.markdown("---")
-            st.subheader("🗣️ 示範")
-            if st.session_state.current_audio_path is None:
-                path = None
-                if "線上" in tts_mode: path = speak_google(display_text, voice_speed)
-                if not path: path = speak_offline(display_text, voice_speed)
-                st.session_state.current_audio_path = path
-
-            if st.session_state.current_audio_path:
-                st.audio(st.session_state.current_audio_path, format="audio/mp3")
-            else:
-                st.warning("無法生成語音")
-
-        with col_R:
-            st.subheader("🎙️ 口說")
-            st.markdown(f'<div class="mobile-hint-card" style="white-space: pre-wrap;">📖 跟讀：<br>{display_text}</div>', unsafe_allow_html=True)
-            
-            user_audio = st.audio_input("錄音", key=f"rec_{idx}", disabled=not google_api_key)
-            if not google_api_key:
-                 st.warning("👉 請先輸入 API Key，才能使用口說評分功能。")
-            
-            if user_audio and st.session_state.current_audio_path and google_api_key:
-                with st.spinner("🤖 AI 分析中..."):
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as tmp:
-                        tmp.write(user_audio.read()); user_path = tmp.name
-                    
-                    u_text = transcribe_audio(user_path)
-                    score_text, diff_html = check_similarity_visual(display_text, u_text)
-                    fig, raw_pitch_score, _ = plot_and_get_trend(st.session_state.current_audio_path, user_path)
-                    
-                    adj_pitch = max(60, raw_pitch_score)
-                    final_score = (score_text * 0.8) + (adj_pitch * 0.2)
-                    feedback = get_ai_coach_feedback(google_api_key, display_text, u_text, final_score)
-
-                if final_score >= 80: st.success(f"🎉 分數：{final_score:.0f}")
-                else: st.info(f"💪 分數：{final_score:.0f}")
-                
-                st.write("🎧 回放自己：")
-                st.audio(user_path, format="audio/wav")
-                st.markdown(f'<div class="ai-feedback-box">{feedback}</div>', unsafe_allow_html=True)
-                
-                tab1, tab2 = st.tabs(["🔤 糾錯", "📈 語調"])
-                with tab1: st.markdown(f'<div class="diff-box">{diff_html}</div>', unsafe_allow_html=True)
-                with tab2: 
-                    if fig: st.pyplot(fig)
-                    else: st.info("無法分析語調")
-
-# ==========================================
-# 模式 B: 拼字測驗 (AI出題)
-# ==========================================
-elif app_mode == "📝 拼字測驗 (AI出題)":
-    vocab_list = load_vocab()
-    st.subheader("📝 單字本拼字測驗")
-    
-    if not vocab_list:
-        st.info("📭 目前單字庫是空的。請先去「跟讀練習」查詢單字並按「⭐ 收藏」。")
-    else:
-        st.write(f"📚 目前累積單字：**{len(vocab_list)}** 個")
-        st.caption("點擊下方按鈕，AI 會出題讓您練習「拼字」！")
-        
-        c1, c2 = st.columns([1, 2])
-        with c1:
-            if st.button("🎲 AI 隨機出一題", type="primary", use_container_width=True, disabled=not google_api_key):
-                target = random.choice(vocab_list)
-                word = target["word"]
-                info = target["info"]
-
-                with st.spinner(f"正在為 '{word}' 出題中..."):
-                    q_text = generate_quiz(google_api_key, word)
-                    if q_text and "Q:" in q_text and "A:" in q_text:
-                        st.session_state.quiz_data = {"word": word, "content": q_text, "original_info": info}
-                        st.session_state.quiz_state = "QUESTION"
-                        st.session_state.quiz_attempts = 0
-                        st.session_state.quiz_last_msg = ""
-                        st.session_state.quiz_error_counted = False
-                        st.rerun()
-                    else:
-                        st.error(f"出題失敗：{q_text}")
-        
-        if not google_api_key:
-             st.warning("👉 請先輸入 API Key，才能使用 AI 出題功能。")
-
-        if st.session_state.quiz_data:
-            data = st.session_state.quiz_data
-            
-            # [雙重防呆]
-            if 'content' not in data:
-                st.warning("⚠️ 偵測到模式切換，請重新點擊上方紅色按鈕出題。")
-                st.session_state.quiz_data = None
-                st.stop()
-            
-            content = data["content"]
-            try:
-                q_part = content.split("A:")[0].replace("Q:", "").strip()
-            except:
-                q_part = content
-            
-            st.markdown(f"""
-            <div class="quiz-box">
-                <h3>❓ 填空拼字：</h3>
-                <p class="quiz-question">{q_part}</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            if st.session_state.quiz_state == "RESULT":
-                st.success(f"🎉 答對了！答案就是 **{data['word']}**")
-                
-                try:
-                    a_part = content.split("A:")[1].strip() if "A:" in content else "無翻譯"
-                except:
-                    a_part = "解析錯誤"
-                st.info(f"💡 翻譯：{a_part}")
-
-                st.markdown("---")
-                st.caption("📜 原始單字卡：")
-                original_html = data['original_info'].replace('\n', '<br>')
-                st.markdown(f'<div style="background-color:#fff9c4; padding:10px; border-radius:8px;">{original_html}</div>', unsafe_allow_html=True)
-
-                w_path = speak_google(data['word'])
-                if w_path: st.audio(w_path, format='audio/mp3')
-                
-                if st.button("下一題", use_container_width=True):
-                    target = random.choice(vocab_list)
-                    word = target["word"]
-                    info = target["info"]
-                    with st.spinner(f"正在為 '{word}' 出題中..."):
-                        q_text = generate_quiz(google_api_key, word)
-                        if q_text and "Q:" in q_text and "A:" in q_text:
-                            st.session_state.quiz_data = {"word": word, "content": q_text, "original_info": info}
-                            st.session_state.quiz_state = "QUESTION"
-                            st.session_state.quiz_attempts = 0
-                            st.session_state.quiz_last_msg = ""
-                            st.session_state.quiz_error_counted = False
-                            st.rerun()
-
-            else:
-                user_spelling = st.text_input("✍️ 請輸入您的答案：", key="spelling_input")
-                
-                c_sub, c_giveup = st.columns([2, 1])
-                with c_sub:
-                    if st.button("送出檢查", use_container_width=True):
-                        correct_word = data['word'].strip().lower()
-                        user_word = user_spelling.strip().lower()
-                        
-                        if correct_word == user_word:
-                            st.balloons()
-                            st.session_state.quiz_state = "RESULT"
-                            st.rerun()
-                        else:
-                            st.session_state.quiz_attempts += 1
-                            if not st.session_state.quiz_error_counted:
-                                increment_error_count(data['word'])
-                                st.session_state.quiz_error_counted = True
-                            
-                            hint = get_spelling_hint(data['word'], st.session_state.quiz_attempts)
-                            st.session_state.quiz_last_msg = f"❌ 拼錯了 (嘗試 {st.session_state.quiz_attempts} 次)<br>💡 提示：{hint}"
-                            st.rerun()
-                
-                with c_giveup:
-                    if st.button("🏳️ 放棄，看答案", use_container_width=True):
-                        if not st.session_state.quiz_error_counted:
-                            increment_error_count(data['word'])
-                            st.session_state.quiz_error_counted = True
-                        st.session_state.quiz_state = "RESULT"
-                        st.rerun()
-
-                if st.session_state.quiz_last_msg:
-                    st.markdown(f'<div class="hint-box">{st.session_state.quiz_last_msg}</div>', unsafe_allow_html=True)
-
-# ==========================================
-# 模式 C: 英聽拼字測驗 (英聽修復版)
-# ==========================================
-elif app_mode == "👂 英聽拼字測驗":
-    vocab_list = load_vocab()
-    st.subheader("👂 單字本英聽測驗")
-    
-    if not vocab_list:
-        st.info("📭 目前單字庫是空的。請先去「跟讀練習」查詢單字並按「⭐ 收藏」。")
-    else:
-        st.write(f"📚 目前累積單字：**{len(vocab_list)}** 個")
-        st.caption("點擊下方按鈕，系統會播放發音，請您拼出單字！")
-        
-        # [功能] 隨機選字並產生音檔
-        if st.button("🎧 播放題目 (隨機單字)", type="primary", use_container_width=True):
-            target = random.choice(vocab_list)
-            word = target["word"]
-            info = target["info"]
-            
-            w_path = speak_google(word)
-            if not w_path: w_path = speak_offline(word)
-            
-            st.session_state.quiz_data = {"word": word, "audio": w_path, "original_info": info}
-            st.session_state.quiz_state = "QUESTION"
-            st.session_state.quiz_attempts = 0
-            st.session_state.quiz_last_msg = ""
-            st.session_state.quiz_error_counted = False
-            st.rerun()
-
-        if st.session_state.quiz_data:
-            data = st.session_state.quiz_data
-            
-            # [雙重防呆]
-            if 'audio' not in data:
-                st.warning("⚠️ 偵測到模式切換，請重新點擊上方紅色按鈕播放題目。")
-                st.session_state.quiz_data = None
-                st.stop()
-
-            st.markdown("""
-            <div class="quiz-box">
-                <h3>🎧 請聽音拼字：</h3>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            if 'audio' in data and data['audio']:
-                st.audio(data['audio'], format='audio/mp3')
-            else:
-                st.error("無法生成語音")
-
-            if st.session_state.quiz_state == "RESULT":
-                st.success(f"🎉 答對了！答案就是 **{data['word']}**")
-                
-                st.markdown("---")
-                st.caption("📜 原始單字卡：")
-                original_html = data['original_info'].replace('\n', '<br>')
-                st.markdown(f'<div style="background-color:#fff9c4; padding:10px; border-radius:8px;">{original_html}</div>', unsafe_allow_html=True)
-                
-                if st.button("下一題", use_container_width=True):
-                    target = random.choice(vocab_list)
-                    word = target["word"]
-                    info = target["info"]
-                    
-                    w_path = speak_google(word)
-                    if not w_path: w_path = speak_offline(word)
-                    
-                    st.session_state.quiz_data = {"word": word, "audio": w_path, "original_info": info}
-                    st.session_state.quiz_state = "QUESTION"
-                    st.session_state.quiz_attempts = 0
-                    st.session_state.quiz_last_msg = ""
-                    st.session_state.quiz_error_counted = False
-                    st.rerun()
-            else:
-                user_spelling = st.text_input("✍️ 請輸入您的答案：", key="listening_input")
-                
-                c_sub, c_giveup = st.columns([2, 1])
-                with c_sub:
-                    if st.button("送出檢查", use_container_width=True):
-                        correct_word = data['word'].strip().lower()
-                        user_word = user_spelling.strip().lower()
-                        
-                        if correct_word == user_word:
-                            st.balloons()
-                            st.session_state.quiz_state = "RESULT"
-                            st.rerun()
-                        else:
-                            st.session_state.quiz_attempts += 1
-                            if not st.session_state.quiz_error_counted:
-                                increment_error_count(data['word'])
-                                st.session_state.quiz_error_counted = True
-                            
-                            hint = get_spelling_hint(data['word'], st.session_state.quiz_attempts)
-                            st.session_state.quiz_last_msg = f"❌ 拼錯了 (嘗試 {st.session_state.quiz_attempts} 次)<br>💡 提示：{hint}"
-                            st.rerun()
-                
-                with c_giveup:
-                    if st.button("🏳️ 放棄，看答案", use_container_width=True):
-                        if not st.session_state.quiz_error_counted:
-                            increment_error_count(data['word'])
-                            st.session_state.quiz_error_counted = True
-                        st.session_state.quiz_state = "RESULT"
-                        st.rerun()
-
-                if st.session_state.quiz_last_msg:
-                    st.markdown(f'<div class="hint-box">{st.session_state.quiz_last_msg}</div>', unsafe_allow_html=True)
+                 st.warning
