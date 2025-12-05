@@ -1,0 +1,27 @@
+{
+    "現在式 Be動詞肯定句 -> 改否定句": {
+        "total": 2,
+        "correct": 0
+    },
+    "過去式 Be動詞肯定句 -> 改Yes/No疑問句": {
+        "total": 2,
+        "correct": 0
+    },
+    "現在簡單式 一般動詞肯定句 -> 改否定句 (do/does)": {
+        "total": 2,
+        "correct": 0
+    },
+    "感嘆句 (How/What) -> 改成陳述句": {
+        "total": 1,
+        "correct": 0,
+        "errors": [
+            {
+                "time": "2025-12-05 15:18",
+                "q": "How beautiful the sunset is!",
+                "user": "is the sunset beautiful?",
+                "ans": "The sunset is very beautiful.",
+                "feedback": "學生的回答「is the sunset beautiful?」是一個問句，而不是陳述句。將感嘆句改為陳述句時，應將句子的語氣從感嘆轉為陳述，並維持其事實描述的性質。正確的陳述句應為「The sunset is very beautiful.」。"
+            }
+        ]
+    }
+}

@@ -18,7 +18,7 @@ import google.generativeai as genai
 
 # 1. 設定頁面
 try:
-    st.set_page_config(page_title="AI 英文教練 Pro (排序切換版)", layout="wide", page_icon="🎓")
+    st.set_page_config(page_title="AI 英文教練 Pro (深度分析版)", layout="wide", page_icon="🎓")
 except:
     pass
 
@@ -43,6 +43,7 @@ except ImportError:
 # 0. 資料存取與輔助邏輯
 # ==========================================
 VOCAB_FILE = "vocab_book.json"
+GRAMMAR_FILE = "grammar_stats.json" # 文法統計與詳細日誌
 KEY_FILE = "api_key.txt"
 
 def load_vocab():
@@ -96,6 +97,78 @@ def process_imported_text(text_content):
             unique_words.append(w)
     return unique_words
 
+# [載入] 文法統計 (包含詳細錯誤日誌)
+def load_grammar_stats():
+    if not os.path.exists(GRAMMAR_FILE): return {}
+    try:
+        with open(GRAMMAR_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except: return {}
+
+# [更新] 文法統計 (儲存詳細日誌)
+def update_grammar_stats(topic, is_correct, question_text, user_answer, correct_answer, ai_feedback):
+    stats = load_grammar_stats()
+    if topic not in stats:
+        stats[topic] = {"total": 0, "correct": 0, "errors": []}
+    
+    stats[topic]["total"] += 1
+    if is_correct:
+        stats[topic]["correct"] += 1
+    else:
+        # [關鍵] 記錄詳細錯誤資訊
+        new_error = {
+            "time": time.strftime("%Y-%m-%d %H:%M"),
+            "q": question_text,
+            "user": user_answer,
+            "ans": correct_answer,
+            "feedback": ai_feedback
+        }
+        # 將新錯誤加到列表 (保留最近 50 筆)
+        if "errors" not in stats[topic]: stats[topic]["errors"] = []
+        stats[topic]["errors"].append(new_error)
+        stats[topic]["errors"] = stats[topic]["errors"][-50:] # 只留最後50筆
+        
+    with open(GRAMMAR_FILE, "w", encoding="utf-8") as f:
+        json.dump(stats, f, ensure_ascii=False, indent=4)
+
+# [新增] 產生 AI 綜合檢討報告
+def generate_review_report(api_key, model_name, stats_data):
+    if not api_key: return "⚠️ 請先輸入 API Key。"
+    
+    # 準備給 AI 的摘要數據
+    error_logs = []
+    for topic, data in stats_data.items():
+        if "errors" in data and data["errors"]:
+            # 每個題型取最近 3 筆錯誤範例給 AI 分析
+            examples = data["errors"][-3:]
+            for ex in examples:
+                error_logs.append(f"題型: {topic} | 學生寫: {ex['user']} | 正解: {ex['ans']} | AI評語: {ex['feedback']}")
+
+    if not error_logs:
+        return "🎉 太棒了！目前的記錄中沒有發現錯誤，請繼續保持！"
+
+    # 組合 Prompt
+    prompt = f"""
+    你是一位專業的英文家教。以下是學生最近的文法練習錯誤紀錄：
+    
+    {json.dumps(error_logs, ensure_ascii=False, indent=2)}
+    
+    請根據這些錯誤，生成一份「學習診斷報告」：
+    1. **錯誤模式分析**：學生是否有特定的盲點？(例如：常忘記加 s、時態混淆、be動詞誤用)
+    2. **重點複習建議**：針對上述盲點，給出 3 個具體的文法複習重點。
+    3. **鼓勵的話**：給學生正向的鼓勵。
+    
+    請用繁體中文回答，語氣溫柔專業。
+    """
+    
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_name)
+        response = model.generate_content(prompt, stream=False)
+        return response.text
+    except Exception as e:
+        return f"報告生成失敗: {str(e)}"
+
 # ==========================================
 # 1. UI 美化
 # ==========================================
@@ -121,7 +194,7 @@ def inject_custom_css():
     """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. 核心功能
+# 2. 核心功能 (修改為接收 model_name)
 # ==========================================
 
 def split_text_smartly(text):
@@ -199,6 +272,7 @@ def handle_ai_error(e, model_name):
     elif "404" in err_str: return f"❌ 找不到模型 {model_name} (404)。請嘗試使用自動偵測的模型。"
     else: return f"❌ AI 發生錯誤: {err_str}"
 
+# [新增功能] 接收 model_name 參數
 def get_ai_coach_feedback(api_key, model_name, target_text, user_text, score):
     if not api_key: return "⚠️ 請在側邊欄輸入 Google API Key"
     try:
@@ -221,6 +295,7 @@ def get_ai_coach_feedback(api_key, model_name, target_text, user_text, score):
     except Exception as e:
         return handle_ai_error(e, model_name)
 
+# [新增功能] 接收 model_name 參數
 @st.cache_data(show_spinner=False)
 def get_word_info(_api_key, model_name, word, sentence):
     if not _api_key: return "⚠️ 請輸入 Google API Key"
@@ -249,6 +324,114 @@ def generate_quiz(api_key, model_name, word):
         else: return raw_text
     except Exception as e:
         return handle_ai_error(e, model_name)
+
+# [新增功能] 批次產生文法改寫題目 (使用新題庫 + 要求回傳分類)
+def generate_grammar_batch(api_key, model_name, count=10):
+    if not api_key: return None, "錯誤：未輸入 API Key"
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_name)
+        
+        # 完整的題型列表 (您指定的)
+        topics = [
+            "現在式 Be動詞肯定句 -> 改否定句", "現在式 Be動詞肯定句 -> 改Yes/No疑問句",
+            "過去式 Be動詞肯定句 -> 改否定句", "過去式 Be動詞肯定句 -> 改Yes/No疑問句",
+            "現在簡單式 一般動詞肯定句 -> 改否定句 (do/does)", "現在簡單式 一般動詞肯定句 -> 改Yes/No疑問句 (do/does)",
+            "過去簡單式 一般動詞肯定句 -> 改否定句 (did)", "過去簡單式 一般動詞肯定句 -> 改Yes/No疑問句 (did)",
+            "現在進行式 肯定句 -> 改否定句", "現在進行式 肯定句 -> 改Yes/No疑問句",
+            "過去進行式 肯定句 -> 改否定句", "過去進行式 肯定句 -> 改Yes/No疑問句",
+            "There is/are 肯定句 -> 改否定句", "There is/are 肯定句 -> 改Yes/No疑問句",
+            "There was/were 肯定句 -> 改否定句", "There was/were 肯定句 -> 改Yes/No疑問句",
+            "情態動詞 (can/may/must) 肯定句 -> 改否定句", "情態動詞 (can/may/must) 肯定句 -> 改Yes/No疑問句",
+            "現在簡單式 Yes/No疑問句 -> 改Wh-疑問句", "過去簡單式 Yes/No疑問句 -> 改Wh-疑問句",
+            "Will 未來式肯定句 -> 改否定句", "Will 未來式肯定句 -> 改Yes/No疑問句",
+            "Be going to 未來式肯定句 -> 改否定句", "Be going to 未來式肯定句 -> 改Yes/No疑問句",
+            "現在簡單式肯定句 -> 改過去簡單式", "過去簡單式肯定句 -> 改現在簡單式",
+            "形容詞比較級句子 -> 改最高級", "形容詞最高級句子 -> 改比較級",
+            "祈使句 -> 改禮貌請求 (please/could you)",
+            "現在簡單式 主動語態 -> 改被動語態", "現在簡單式 被動語態 -> 改主動語態",
+            "過去簡單式 主動語態 -> 改被動語態", "過去簡單式 被動語態 -> 改主動語態",
+            "現在完成式 肯定句 -> 改否定句", "現在完成式 肯定句 -> 改Yes/No疑問句", "現在完成式 肯定句 -> 改Wh-疑問句",
+            "過去完成式 肯定句 -> 改否定句", "過去完成式 肯定句 -> 改Yes/No疑問句",
+            "第一條件句 (未來可能) -> 改否定句", "第二條件句 (假設) -> 改否定句",
+            "關係子句 (who/which/that) -> 改成兩個簡單句",
+            "Because 因果句 -> 改成 So 結果句",
+            "連接詞句子 (and/but/or) -> 改用其他連接詞",
+            "Some 的句子 -> 改成 Any (否定/疑問)",
+            "Much/Many 的句子 -> 改成 A lot of/Lots of",
+            "Few/Little 的句子 -> 改成 Not many/Not much",
+            "Have to 義務句 -> 改成 Must", "Can 能力句 -> 改成 Could (過去式)",
+            "Will 預測句 -> 改成 Be going to 計劃句",
+            "Too/Enough 句子 -> 改寫", "感嘆句 (How/What) -> 改成陳述句",
+            "介系詞句子 -> 改換介系詞", "冠詞句子 -> 改無冠詞",
+            "所有格句子 -> 改 Of 結構", "反身代名詞句子 -> 改一般代名詞",
+            "現在進行式 (未來計劃) -> 改 Be going to",
+            "頻率副詞句子 -> 改變位置", "副詞比較級句子 -> 改 as...as",
+            "附加疑問句 (Tag Question) -> 改完整疑問句",
+            "間接引語 (Reported Speech) -> 改直接引語 (Direct Speech)"
+        ]
+        
+        prompt = f"""
+        請產生 {count} 個英文句型改寫練習題。
+        請從以下範圍中隨機挑選不同的題型 (不要重複)：
+        {json.dumps(topics, ensure_ascii=False)}
+        
+        請嚴格使用 JSON 格式回傳一個 List (列表)，物件欄位必須包含 'topic' 以便統計。格式如下：
+        [
+            {{"topic": "所選的題型名稱", "source": "原始句子", "task": "改寫要求", "answer": "正確答案"}},
+            {{"topic": "...", "source": "...", "task": "...", "answer": "..."}}
+        ]
+        不需要 Markdown 標記，直接回傳純 JSON 文字。
+        """
+        
+        responses = model.generate_content(prompt, stream=False)
+        raw_text = responses.text.strip()
+        
+        # 嘗試清理 Markdown
+        if "```json" in raw_text:
+            raw_text = raw_text.split("```json")[1].split("```")[0].strip()
+        elif "```" in raw_text:
+            raw_text = raw_text.split("```")[1].strip()
+            
+        questions = json.loads(raw_text)
+        return questions, None
+        
+    except Exception as e:
+        return None, handle_ai_error(e, model_name)
+
+# [新增功能] 檢查文法答案 (增加拼字檢查與 JSON 輸出)
+def check_grammar_answer(api_key, model_name, question, user_answer, correct_answer):
+    if not api_key: return False, "無法評分"
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_name)
+        prompt = f"""
+        題目："{question}"
+        要求目標："{correct_answer}"
+        學生回答："{user_answer}"
+        
+        請判斷學生的回答是否正確。
+        1. **嚴格檢查拼字**：如果有任何單字拼錯 (Typo)，請直接視為錯誤，並明確指出哪個字拼錯。
+        2. 文法結構必須正確。
+        
+        請以 JSON 格式回傳：
+        {{
+            "is_correct": true 或 false,
+            "feedback": "這裡寫繁體中文的評語、讚美或糾正內容"
+        }}
+        不需要 Markdown。
+        """
+        responses = model.generate_content(prompt, stream=False)
+        text = responses.text.strip()
+        
+        if "```json" in text: text = text.split("```json")[1].split("```")[0].strip()
+        elif "```" in text: text = text.split("```")[1].strip()
+            
+        result = json.loads(text)
+        return result.get("is_correct", False), result.get("feedback", "解析錯誤")
+        
+    except Exception as e:
+        return False, f"評分失敗: {str(e)}"
 
 def get_spelling_hint(word, attempts):
     length = len(word)
@@ -320,6 +503,11 @@ if 'quiz_attempts' not in st.session_state: st.session_state.quiz_attempts = 0
 if 'quiz_last_msg' not in st.session_state: st.session_state.quiz_last_msg = ""
 if 'quiz_error_counted' not in st.session_state: st.session_state.quiz_error_counted = False
 if 'last_app_mode' not in st.session_state: st.session_state.last_app_mode = None
+# [修改] 寫作練習的 state (支援佇列)
+if 'grammar_queue' not in st.session_state: st.session_state.grammar_queue = []
+if 'grammar_index' not in st.session_state: st.session_state.grammar_index = 0
+if 'grammar_feedback' not in st.session_state: st.session_state.grammar_feedback = ""
+if 'review_report' not in st.session_state: st.session_state.review_report = None # 儲存檢討報告
 
 if 'saved_api_key' not in st.session_state:
     if os.path.exists(KEY_FILE):
@@ -360,13 +548,18 @@ with st.sidebar:
         st.warning("👉 請輸入 API Key 才能使用 AI 功能。")
     
     st.markdown("---")
-    app_mode = st.radio("選擇模式", ["📖 跟讀練習", "📝 拼字測驗 (AI出題)", "👂 英聽拼字測驗", "📚 單字庫檢視"], index=0)
+    # [修改] 加入新的模式選項
+    app_mode = st.radio("選擇模式", ["📖 跟讀練習", "📝 拼字測驗 (AI出題)", "👂 英聽拼字測驗", "✍️ 句型改寫練習", "📚 單字庫檢視"], index=0)
     
     if st.session_state.last_app_mode != app_mode:
         st.session_state.quiz_data = None
         st.session_state.quiz_state = "QUESTION"
         st.session_state.quiz_attempts = 0
         st.session_state.quiz_last_msg = ""
+        st.session_state.grammar_queue = [] # 重置寫作
+        st.session_state.grammar_index = 0
+        st.session_state.grammar_feedback = ""
+        st.session_state.review_report = None # 重置報告
         st.session_state.last_app_mode = app_mode
         st.rerun()
 
@@ -394,30 +587,6 @@ with st.sidebar:
                 st.write(f"**{i+1}. {v['word']}** (錯 {v['error_count']} 次)")
         else:
             st.caption("目前沒有拼錯紀錄，繼續保持！")
-
-    st.markdown("---")
-    with st.expander("📤 匯入外部單字檔", expanded=False):
-        uploaded_txt = st.file_uploader("上傳純文字或CSV檔", type=["txt", "csv"])
-        if uploaded_txt:
-            if st.button("開始匯入分析"):
-                stringio = uploaded_txt.getvalue().decode("utf-8")
-                new_words = process_imported_text(stringio)
-                
-                if not new_words:
-                    st.warning("⚠️ 檔案中找不到有效的英文單字。")
-                else:
-                    added_count = 0
-                    for w in new_words:
-                        success = add_word_to_vocab(w, "💡 待查詢... (請在練習模式點擊查詢)")
-                        if success:
-                            added_count += 1
-                    
-                    if added_count > 0:
-                        st.success(f"🎉 成功匯入 {added_count} 個新單字！")
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.info("這些單字都已經在單字庫裡囉！")
 
     with st.expander("💾 單字庫管理", expanded=False):
         st.write(f"目前單字：**{len(vocab_list)}** 個")
@@ -530,7 +699,7 @@ if app_mode == "📖 跟讀練習":
                 if cols[i % 5].button(word, key=f"w_{idx}_{i}", disabled=not google_api_key):
                     st.session_state.current_word_target = word
                     with st.spinner("🔍 AI 查詢中..."):
-                        # [使用選擇的模型]
+                        # 使用選擇的模型
                         info = get_word_info(google_api_key, selected_model, word, display_text)
                         st.session_state.current_word_info = info
                         if "查詢失敗" not in info and "請輸入 API Key" not in info:
@@ -590,7 +759,7 @@ if app_mode == "📖 跟讀練習":
                     
                     adj_pitch = max(60, raw_pitch_score)
                     final_score = (score_text * 0.8) + (adj_pitch * 0.2)
-                    # [使用選擇的模型]
+                    # 使用選擇的模型
                     feedback = get_ai_coach_feedback(google_api_key, selected_model, display_text, u_text, final_score)
 
                 if final_score >= 80: st.success(f"🎉 分數：{final_score:.0f}")
@@ -627,7 +796,7 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
                 info = target["info"]
 
                 with st.spinner(f"正在為 '{word}' 出題中..."):
-                    # [使用選擇的模型]
+                    # 使用選擇的模型
                     q_text = generate_quiz(google_api_key, selected_model, word)
                     if q_text and "Q:" in q_text and "A:" in q_text:
                         st.session_state.quiz_data = {"word": word, "content": q_text, "original_info": info}
@@ -667,7 +836,7 @@ elif app_mode == "📝 拼字測驗 (AI出題)":
             if st.session_state.quiz_state == "RESULT":
                 st.success(f"🎉 答對了！答案就是 **{data['word']}**")
                 
-                # [自動修復] 檢查原始單字卡是否為 "待查詢"
+                # 自動修復單字卡
                 if "待查詢" in data['original_info'] and google_api_key:
                     with st.spinner("🤖 正在為您自動補上單字定義..."):
                         # 使用選擇的模型
@@ -856,6 +1025,147 @@ elif app_mode == "👂 英聽拼字測驗":
                     st.markdown(f'<div class="hint-box">{st.session_state.quiz_last_msg}</div>', unsafe_allow_html=True)
 
 # ==========================================
+# [新增模式] ✍️ 句型改寫練習 (批次10題極速版 + 嚴格拼字檢查 + 弱點分析)
+# ==========================================
+elif app_mode == "✍️ 句型改寫練習":
+    st.subheader("✍️ 句型改寫練習 (嚴格拼字版)")
+    st.info("AI 會隨機出題，請依指示改寫句子（例如：肯定句改否定句）。")
+    
+    # 載入統計資料
+    stats = load_grammar_stats()
+
+    if not google_api_key:
+        st.warning("👉 請先輸入 API Key 才能使用 AI 出題。")
+    else:
+        # 出題區
+        if not st.session_state.grammar_queue:
+            if st.button("🎲 AI 隨機出題 (一次生成10題)", type="primary", use_container_width=True):
+                with st.spinner("🤖 正在設計 10 道題目... (請稍等約 3~5 秒)"):
+                    data_list, err = generate_grammar_batch(google_api_key, selected_model, count=10)
+                    if data_list:
+                        st.session_state.grammar_queue = data_list
+                        st.session_state.grammar_index = 0
+                        st.session_state.grammar_feedback = ""
+                        st.session_state.review_report = None # 清空舊報告
+                        st.rerun()
+                    else:
+                        st.error(err)
+
+        # 答題區 (如果有題目)
+        if st.session_state.grammar_queue:
+            # 進度條
+            current_q = st.session_state.grammar_index + 1
+            total_q = len(st.session_state.grammar_queue)
+            st.progress(current_q / total_q, text=f"進度：{current_q} / {total_q}")
+            
+            # 取出當前題目
+            q = st.session_state.grammar_queue[st.session_state.grammar_index]
+
+            st.markdown(f"""
+            <div class="quiz-box">
+                <p style="font-size: 20px; color: #555;">題目句子：</p>
+                <h3 style="color: #1b5e20;">{q['source']}</h3>
+                <hr>
+                <p style="font-size: 18px; font-weight: bold; color: #d84315;">👉 任務：{q['task']}</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            user_input = st.text_input("✍️ 請輸入您的答案：", key=f"grammar_input_{st.session_state.grammar_index}")
+
+            # 檢查按鈕
+            if st.button("送出檢查", use_container_width=True, key=f"check_btn_{st.session_state.grammar_index}"):
+                if user_input.strip():
+                    with st.spinner("🤖 AI 老師正在批改 (嚴格拼字模式)..."):
+                        is_correct, feedback = check_grammar_answer(
+                            google_api_key, 
+                            selected_model, 
+                            f"將 '{q['source']}' 改寫為 {q['task']}", 
+                            user_input, 
+                            q['answer']
+                        )
+                        st.session_state.grammar_feedback = (is_correct, feedback)
+                        
+                        # [更新統計] (包含詳細錯誤日誌)
+                        topic_name = q.get('topic', q.get('task', 'Unknown'))
+                        update_grammar_stats(topic_name, is_correct, q['source'], user_input, q['answer'], feedback)
+                else:
+                    st.warning("請先輸入答案喔！")
+
+            # 顯示回饋與下一題按鈕
+            if st.session_state.grammar_feedback:
+                is_correct, feedback_text = st.session_state.grammar_feedback
+                
+                if is_correct:
+                    st.markdown(f'<div class="ai-feedback-box" style="border-left: 5px solid #4caf50; background-color: #e8f5e9;">🎉 正確！<br>{feedback_text}</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="ai-feedback-box" style="border-left: 5px solid #f44336; background-color: #ffebee;">❌ 錯誤<br>{feedback_text}</div>', unsafe_allow_html=True)
+                
+                with st.expander("👀 查看參考答案"):
+                    st.info(f"參考答案：{q['answer']}")
+                
+                st.markdown("---")
+                # 判斷是否還有下一題
+                if current_q < total_q:
+                    if st.button("下一題 ➡️", type="primary", use_container_width=True):
+                        st.session_state.grammar_index += 1
+                        st.session_state.grammar_feedback = ""
+                        st.rerun()
+                else:
+                    if st.button("🏁 完成！再來一組 (10題)", type="primary", use_container_width=True):
+                        st.session_state.grammar_queue = [] # 清空以重新生成
+                        st.session_state.grammar_index = 0
+                        st.session_state.grammar_feedback = ""
+                        st.session_state.review_report = None # 重置報告
+                        st.rerun()
+
+    # [新增] 弱點分析報表 (含詳細日誌)
+    st.markdown("---")
+    with st.expander("📊 您的文法弱點分析", expanded=True):
+        if stats:
+            # 轉換為 DataFrame
+            data = []
+            for topic, s in stats.items():
+                accuracy = (s['correct'] / s['total']) * 100 if s['total'] > 0 else 0
+                data.append({"題型": topic, "練習題數": s['total'], "正確數": s['correct'], "正確率": f"{accuracy:.1f}%", "raw_acc": accuracy})
+            
+            df_stats = pd.DataFrame(data)
+            # 依照正確率由低到高排序 (找出弱點)
+            df_stats = df_stats.sort_values(by="raw_acc", ascending=True)
+            
+            st.dataframe(
+                df_stats[["題型", "正確率", "練習題數", "正確數"]], 
+                use_container_width=True, 
+                hide_index=True
+            )
+            
+            # [新增] AI 綜合檢討報告按鈕
+            if st.button("📑 生成 AI 綜合檢討報告 (分析歷史錯誤)", type="secondary"):
+                with st.spinner("🧠 AI 顧問正在分析所有歷史錯誤，請稍候..."):
+                    report_text = generate_review_report(google_api_key, selected_model, stats)
+                    st.session_state.review_report = report_text
+            
+            if st.session_state.review_report:
+                st.markdown("### 📝 AI 檢討報告")
+                st.markdown(st.session_state.review_report)
+                
+            # [新增] 詳細錯誤追蹤日誌 (可展開)
+            st.markdown("### 🕵️‍♀️ 詳細錯誤追蹤日誌")
+            for topic, s in stats.items():
+                if "errors" in s and s["errors"]:
+                    with st.expander(f"❌ {topic} ({len(s['errors'])} 筆錯誤)"):
+                        for err in reversed(s["errors"]): # 最新錯誤在最上面
+                            st.markdown(f"""
+                            **時間**: {err.get('time', 'N/A')}
+                            - **題目**: {err.get('q', 'N/A')}
+                            - **您的回答**: `{err.get('user', 'N/A')}`
+                            - **正確答案**: `{err.get('ans', 'N/A')}`
+                            - **AI 點評**: {err.get('feedback', 'N/A')}
+                            ---
+                            """)
+        else:
+            st.info("目前還沒有練習記錄，快開始練習吧！")
+
+# ==========================================
 # [新增模式] 📚 單字庫檢視
 # ==========================================
 elif app_mode == "📚 單字庫檢視":
@@ -863,14 +1173,10 @@ elif app_mode == "📚 單字庫檢視":
     vocab_list = load_vocab()
     
     if vocab_list:
-        # 轉成 DataFrame
         df = pd.DataFrame(vocab_list)
-        
-        # 確保必要欄位存在
         if "error_count" not in df.columns: df["error_count"] = 0
         if "info" not in df.columns: df["info"] = ""
         
-        # 整理顯示欄位
         df_display = df[["word", "error_count", "info"]].rename(columns={
             "word": "單字",
             "error_count": "錯誤次數",
@@ -885,17 +1191,10 @@ elif app_mode == "📚 單字庫檢視":
         else:
             df_display = df_display.sort_values(by="單字", ascending=True)
         
-        # 顯示統計
         col1, col2 = st.columns(2)
         col1.metric("總單字數", len(vocab_list))
         col2.metric("曾拼錯單字數", len(df[df["error_count"] > 0]))
         
-        # 顯示大表格
-        st.dataframe(
-            df_display, 
-            use_container_width=True, 
-            height=600, 
-            hide_index=True
-        )
+        st.dataframe(df_display, use_container_width=True, height=600, hide_index=True)
     else:
         st.info("📭 目前單字庫是空的，請先去「跟讀練習」加入單字！")
