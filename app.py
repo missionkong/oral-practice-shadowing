@@ -18,7 +18,7 @@ import google.generativeai as genai
 
 # 1. 設定頁面
 try:
-    st.set_page_config(page_title="AI 英文教練 Pro (深度分析版)", layout="wide", page_icon="🎓")
+    st.set_page_config(page_title="AI 英文教練 Pro (手機完美版)", layout="wide", page_icon="🎓")
 except:
     pass
 
@@ -43,7 +43,7 @@ except ImportError:
 # 0. 資料存取與輔助邏輯
 # ==========================================
 VOCAB_FILE = "vocab_book.json"
-GRAMMAR_FILE = "grammar_stats.json" # 文法統計與詳細日誌
+GRAMMAR_FILE = "grammar_stats.json"
 KEY_FILE = "api_key.txt"
 
 def load_vocab():
@@ -85,6 +85,38 @@ def increment_error_count(target_word):
     if updated:
         save_vocab_to_disk(vocab_list)
 
+# 載入文法統計
+def load_grammar_stats():
+    if not os.path.exists(GRAMMAR_FILE): return {}
+    try:
+        with open(GRAMMAR_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except: return {}
+
+# 更新文法統計
+def update_grammar_stats(topic, is_correct, question_text, user_answer, correct_answer, ai_feedback):
+    stats = load_grammar_stats()
+    if topic not in stats:
+        stats[topic] = {"total": 0, "correct": 0, "errors": []}
+    
+    stats[topic]["total"] += 1
+    if is_correct:
+        stats[topic]["correct"] += 1
+    else:
+        new_error = {
+            "time": time.strftime("%Y-%m-%d %H:%M"),
+            "q": question_text,
+            "user": user_answer,
+            "ans": correct_answer,
+            "feedback": ai_feedback
+        }
+        if "errors" not in stats[topic]: stats[topic]["errors"] = []
+        stats[topic]["errors"].append(new_error)
+        stats[topic]["errors"] = stats[topic]["errors"][-50:]
+        
+    with open(GRAMMAR_FILE, "w", encoding="utf-8") as f:
+        json.dump(stats, f, ensure_ascii=False, indent=4)
+
 def process_imported_text(text_content):
     words = re.findall(r'\b[a-zA-Z]+\b', text_content)
     valid_words = [w for w in words if len(w) >= 2]
@@ -97,49 +129,12 @@ def process_imported_text(text_content):
             unique_words.append(w)
     return unique_words
 
-# [載入] 文法統計 (包含詳細錯誤日誌)
-def load_grammar_stats():
-    if not os.path.exists(GRAMMAR_FILE): return {}
-    try:
-        with open(GRAMMAR_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except: return {}
-
-# [更新] 文法統計 (儲存詳細日誌)
-def update_grammar_stats(topic, is_correct, question_text, user_answer, correct_answer, ai_feedback):
-    stats = load_grammar_stats()
-    if topic not in stats:
-        stats[topic] = {"total": 0, "correct": 0, "errors": []}
-    
-    stats[topic]["total"] += 1
-    if is_correct:
-        stats[topic]["correct"] += 1
-    else:
-        # [關鍵] 記錄詳細錯誤資訊
-        new_error = {
-            "time": time.strftime("%Y-%m-%d %H:%M"),
-            "q": question_text,
-            "user": user_answer,
-            "ans": correct_answer,
-            "feedback": ai_feedback
-        }
-        # 將新錯誤加到列表 (保留最近 50 筆)
-        if "errors" not in stats[topic]: stats[topic]["errors"] = []
-        stats[topic]["errors"].append(new_error)
-        stats[topic]["errors"] = stats[topic]["errors"][-50:] # 只留最後50筆
-        
-    with open(GRAMMAR_FILE, "w", encoding="utf-8") as f:
-        json.dump(stats, f, ensure_ascii=False, indent=4)
-
-# [新增] 產生 AI 綜合檢討報告
+# 產生 AI 檢討報告
 def generate_review_report(api_key, model_name, stats_data):
     if not api_key: return "⚠️ 請先輸入 API Key。"
-    
-    # 準備給 AI 的摘要數據
     error_logs = []
     for topic, data in stats_data.items():
         if "errors" in data and data["errors"]:
-            # 每個題型取最近 3 筆錯誤範例給 AI 分析
             examples = data["errors"][-3:]
             for ex in examples:
                 error_logs.append(f"題型: {topic} | 學生寫: {ex['user']} | 正解: {ex['ans']} | AI評語: {ex['feedback']}")
@@ -147,20 +142,15 @@ def generate_review_report(api_key, model_name, stats_data):
     if not error_logs:
         return "🎉 太棒了！目前的記錄中沒有發現錯誤，請繼續保持！"
 
-    # 組合 Prompt
     prompt = f"""
     你是一位專業的英文家教。以下是學生最近的文法練習錯誤紀錄：
-    
     {json.dumps(error_logs, ensure_ascii=False, indent=2)}
-    
     請根據這些錯誤，生成一份「學習診斷報告」：
-    1. **錯誤模式分析**：學生是否有特定的盲點？(例如：常忘記加 s、時態混淆、be動詞誤用)
+    1. **錯誤模式分析**：學生是否有特定的盲點？
     2. **重點複習建議**：針對上述盲點，給出 3 個具體的文法複習重點。
     3. **鼓勵的話**：給學生正向的鼓勵。
-    
     請用繁體中文回答，語氣溫柔專業。
     """
-    
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(model_name)
@@ -170,70 +160,58 @@ def generate_review_report(api_key, model_name, stats_data):
         return f"報告生成失敗: {str(e)}"
 
 # ==========================================
-# 1. UI 美化
+# 1. UI 美化 (重點修正：手機版強制配色)
 # ==========================================
 def inject_custom_css():
     st.markdown("""
         <style>
-        /* --- 全局背景 --- */
+        /* --- 強制全域背景為淺色 (覆蓋手機深色模式) --- */
         .stApp { 
-            background: linear-gradient(135deg, #fdfbf7 0%, #ebedee 100%); 
+            background: linear-gradient(135deg, #fdfbf7 0%, #ebedee 100%) !important; 
             font-family: 'Microsoft JhengHei', sans-serif; 
         }
 
         /* ============================================================
-           1. 主畫面 (Main Area) - 強制深色文字 (確保白底可見)
+           【主畫面修正】 強制所有文字為黑色 (#000000)
            ============================================================ */
-        /* 針對主畫面的所有容器、標題、段落、列表、Label */
-        .main .block-container,
-        .main .block-container h1, 
-        .main .block-container h2, 
-        .main .block-container h3, 
-        .main .block-container h4, 
-        .main .block-container p, 
-        .main .block-container li, 
-        .main .block-container span, 
-        .main .block-container label, 
-        .main .block-container div,
-        .main .block-container .stMarkdown,
-        .main .block-container button {
+        /* 包含標題、內文、列表、表格文字、Markdown */
+        .main h1, .main h2, .main h3, .main h4, .main p, .main li, .main span, .main div, .main label, .main td, .main th {
             color: #000000 !important;
         }
-        
-        /* 修正主畫面輸入框與 Radio Button 的 Label 顏色 */
-        .main .stTextInput label, 
-        .main .stSelectbox label, 
-        .main .stRadio label,
-        .main .stNumberInput label {
+        /* 修正主畫面輸入框的 Label 顏色 */
+        .main .stTextInput label, .main .stSelectbox label, .main .stRadio label {
+            color: #000000 !important;
+        }
+        /* 修正主畫面 Markdown 區塊 */
+        .main .stMarkdown {
             color: #000000 !important;
         }
 
         /* ============================================================
-           2. 側邊欄 (Sidebar) - 強制白色文字 (配合深色背景)
+           【側邊欄修正】 強制背景深色，文字白色 (#FFFFFF)
            ============================================================ */
         [data-testid="stSidebar"] {
             background-color: #263238 !important; /* 深藍灰色背景 */
         }
-        
-        /* 側邊欄所有文字強制變白 */
+        /* 側邊欄所有標題、段落、Label 強制變白 */
         [data-testid="stSidebar"] h1, 
         [data-testid="stSidebar"] h2, 
         [data-testid="stSidebar"] h3, 
         [data-testid="stSidebar"] p, 
         [data-testid="stSidebar"] span, 
         [data-testid="stSidebar"] div, 
-        [data-testid="stSidebar"] label, 
-        [data-testid="stSidebar"] .stMarkdown,
-        [data-testid="stSidebar"] .stRadio label {
+        [data-testid="stSidebar"] label,
+        [data-testid="stSidebar"] .stMarkdown {
             color: #ffffff !important;
         }
         
-        /* 側邊欄輸入框內的文字維持深色 (因為輸入框背景通常是白的) */
+        /* 例外：側邊欄的輸入框 (Input) 內部文字必須是黑色 (因為輸入框背景通常是白) */
         [data-testid="stSidebar"] input {
             color: #000000 !important;
         }
-
-        /* --- 閱讀區塊樣式 --- */
+        
+        /* --- 特殊元件樣式 --- */
+        /* 閱讀區塊 */
         .reading-box { 
             font-size: 26px !important; 
             font-weight: bold; 
@@ -249,7 +227,7 @@ def inject_custom_css():
             font-family: 'Courier New', Courier, monospace; 
         }
         
-        /* --- 單字卡片 --- */
+        /* 單字卡片 */
         .definition-card { 
             background-color: #fff9c4 !important; 
             border: 2px solid #fbc02d; 
@@ -260,7 +238,7 @@ def inject_custom_css():
             font-size: 18px; 
         }
         
-        /* --- 提示卡 --- */
+        /* 提示卡 */
         .mobile-hint-card { 
             background-color: #e3f2fd !important; 
             border-left: 5px solid #2196f3; 
@@ -272,7 +250,7 @@ def inject_custom_css():
             color: #0d47a1 !important; 
         }
         
-        /* --- 測驗區塊 --- */
+        /* 測驗區塊 */
         .quiz-box { 
             background-color: #ffffff !important; 
             border: 2px solid #4caf50; 
@@ -290,7 +268,7 @@ def inject_custom_css():
             line-height: 1.6; 
         }
         
-        /* --- 提示與排行榜 --- */
+        /* 提示與排行榜 */
         .hint-box { 
             background-color: #ffebee !important; 
             color: #c62828 !important; 
@@ -309,7 +287,7 @@ def inject_custom_css():
             color: #e65100 !important; 
         }
         
-        /* --- AI 回饋 --- */
+        /* AI 回饋 */
         .ai-feedback-box { 
             background-color: #f1f8e9 !important; 
             border-left: 5px solid #8bc34a; 
@@ -319,7 +297,7 @@ def inject_custom_css():
             margin-top: 20px;
         }
         
-        /* --- 按鈕 --- */
+        /* 按鈕 */
         div.stButton > button { 
             width: 100%; 
             border-radius: 8px; 
@@ -408,7 +386,7 @@ def handle_ai_error(e, model_name):
     elif "404" in err_str: return f"❌ 找不到模型 {model_name} (404)。請嘗試使用自動偵測的模型。"
     else: return f"❌ AI 發生錯誤: {err_str}"
 
-# [新增功能] 接收 model_name 參數
+# 接收 model_name 參數
 def get_ai_coach_feedback(api_key, model_name, target_text, user_text, score):
     if not api_key: return "⚠️ 請在側邊欄輸入 Google API Key"
     try:
@@ -431,7 +409,7 @@ def get_ai_coach_feedback(api_key, model_name, target_text, user_text, score):
     except Exception as e:
         return handle_ai_error(e, model_name)
 
-# [新增功能] 接收 model_name 參數
+# 接收 model_name 參數
 @st.cache_data(show_spinner=False)
 def get_word_info(_api_key, model_name, word, sentence):
     if not _api_key: return "⚠️ 請輸入 Google API Key"
@@ -461,14 +439,14 @@ def generate_quiz(api_key, model_name, word):
     except Exception as e:
         return handle_ai_error(e, model_name)
 
-# [新增功能] 批次產生文法改寫題目 (使用新題庫 + 要求回傳分類)
+# 批次產生文法改寫題目
 def generate_grammar_batch(api_key, model_name, count=10):
     if not api_key: return None, "錯誤：未輸入 API Key"
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(model_name)
         
-        # 完整的題型列表 (您指定的)
+        # 完整的題型列表
         topics = [
             "現在式 Be動詞肯定句 -> 改否定句", "現在式 Be動詞肯定句 -> 改Yes/No疑問句",
             "過去式 Be動詞肯定句 -> 改否定句", "過去式 Be動詞肯定句 -> 改Yes/No疑問句",
@@ -535,7 +513,7 @@ def generate_grammar_batch(api_key, model_name, count=10):
     except Exception as e:
         return None, handle_ai_error(e, model_name)
 
-# [新增功能] 檢查文法答案 (增加拼字檢查與 JSON 輸出)
+# 檢查文法答案 (增加拼字檢查與 JSON 輸出)
 def check_grammar_answer(api_key, model_name, question, user_answer, correct_answer):
     if not api_key: return False, "無法評分"
     try:
@@ -739,7 +717,7 @@ with st.sidebar:
             except:
                  st.error("還原失敗，格式錯誤。")
 
-st.title("🎤 AI 英文教練 Pro (深度分析版)")
+st.title("🎤 AI 英文教練 Pro (最終UI版)")
 
 # ==========================================
 # 模式 A: 跟讀練習
