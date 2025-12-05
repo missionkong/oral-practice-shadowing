@@ -11,6 +11,7 @@ import speech_recognition as sr
 from gtts import gTTS
 import ssl
 import pandas as pd
+import matplotlib.pyplot as plt # 補上這行，否則語調圖表會報錯
 
 # [核心] 使用 Google Generative AI
 import google.generativeai as genai
@@ -93,7 +94,7 @@ def process_imported_text(text_content):
     return unique_words
 
 # ==========================================
-# 1. UI 美化 (手機版色彩對比極致優化)
+# 1. UI 美化 (修正手機版配色問題)
 # ==========================================
 def inject_custom_css():
     st.markdown("""
@@ -104,8 +105,8 @@ def inject_custom_css():
             font-family: 'Microsoft JhengHei', sans-serif; 
         }
         
-        /* --- 主畫面 (Main Area) 文字顏色設定 --- */
-        /* 強制所有標題、段落、文字為深黑色 */
+        /* ====== 修正 1: 主畫面 (Main Area) ====== */
+        /* 強制將主畫面的所有文字設為深色，確保白底可見 */
         .main .block-container h1, 
         .main .block-container h2, 
         .main .block-container h3, 
@@ -114,11 +115,12 @@ def inject_custom_css():
         .main .block-container div,
         .main .block-container span,
         .main .block-container label,
-        .main .block-container li {
-            color: #000000 !important;
+        .main .block-container li,
+        .main .block-container .stMarkdown {
+            color: #333333 !important; /* 深灰色 */
         }
 
-        /* --- 側邊欄 (Sidebar) 設定 --- */
+        /* ====== 修正 2: 側邊欄 (Sidebar) ====== */
         [data-testid="stSidebar"] {
             background-color: #263238 !important; /* 深藍灰色背景 */
         }
