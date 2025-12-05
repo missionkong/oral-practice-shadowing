@@ -717,6 +717,30 @@ with st.sidebar:
             except:
                  st.error("還原失敗，格式錯誤。")
 
+    # [新增] 文法紀錄管理 (包含錯誤、統計與細節)
+    with st.expander("💾 文法練習紀錄備份", expanded=False):
+        stats = load_grammar_stats()
+        # 計算總錯誤數 (方便顯示)
+        total_errors = sum(len(item.get("errors", [])) for item in stats.values())
+        st.write(f"目前紀錄：**{len(stats)}** 種題型")
+        st.write(f"累計錯誤：**{total_errors}** 筆")
+        
+        if stats:
+            stats_json = json.dumps(stats, ensure_ascii=False, indent=4)
+            st.download_button("📥 下載紀錄 (JSON)", stats_json, "grammar_stats_backup.json", "application/json")
+        
+        uploaded_stats = st.file_uploader("📤 上傳還原紀錄", type=["json"], key="grammar_restore")
+        if uploaded_stats:
+            try:
+                data = json.load(uploaded_stats)
+                # 存回硬碟
+                with open(GRAMMAR_FILE, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+                st.success(f"✅ 已還原文法紀錄！")
+                st.rerun()
+            except:
+                st.error("還原失敗，格式錯誤。")
+
 st.title("🎤 AI 英文教練 Pro (最終UI版)")
 
 # ==========================================
