@@ -1,0 +1,54 @@
+{
+    "現在式 Be動詞肯定句 -> 改否定句": {
+        "total": 5,
+        "correct": 2,
+        "errors": [
+            {
+                "time": "2025-12-05 10:04",
+                "q": "She is a doctor.",
+                "user": "She is not doctor",
+                "ans": "She is not a doctor.",
+                "feedback": "學生的回答「She is not doctor」在文法上不正確。當 \"doctor\" 這個可數名詞為單數時，前面必須要有冠詞 \"a\"。正確的否定句應為「She is not a doctor.」。"
+            }
+        ]
+    },
+    "過去式 Be動詞肯定句 -> 改Yes/No疑問句": {
+        "total": 2,
+        "correct": 0
+    },
+    "現在簡單式 一般動詞肯定句 -> 改否定句 (do/does)": {
+        "total": 2,
+        "correct": 0
+    },
+    "感嘆句 (How/What) -> 改成陳述句": {
+        "total": 1,
+        "correct": 0,
+        "errors": [
+            {
+                "time": "2025-12-05 15:18",
+                "q": "How beautiful the sunset is!",
+                "user": "is the sunset beautiful?",
+                "ans": "The sunset is very beautiful.",
+                "feedback": "學生的回答「is the sunset beautiful?」是一個問句，而不是陳述句。將感嘆句改為陳述句時，應將句子的語氣從感嘆轉為陳述，並維持其事實描述的性質。正確的陳述句應為「The sunset is very beautiful.」。"
+            }
+        ]
+    },
+    "現在簡單式 一般動詞肯定句 -> 改Yes/No疑問句 (do/does)": {
+        "total": 1,
+        "correct": 1,
+        "errors": []
+    },
+    "過去簡單式 一般動詞肯定句 -> 改Yes/No疑問句 (did)": {
+        "total": 1,
+        "correct": 0,
+        "errors": [
+            {
+                "time": "2025-12-05 10:51",
+                "q": "They watched a movie last night.",
+                "user": "Do they watched a movie last night.",
+                "ans": "Did they watch a movie last night?",
+                "feedback": "學生的回答不正確。原始句子「They watched a movie last night.」是過去式，因此在改寫成Yes/No疑問句時，應該使用過去式的助動詞「Did」，而非現在式的「Do」。此外，當句中使用了助動詞「Did」後，主要動詞「watched」必須改回它的原形動詞「watch」。\n\n正確的答案應該是：「Did they watch a movie last night?」"
+            }
+        ]
+    }
+}

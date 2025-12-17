@@ -48,6 +48,7 @@ except ImportError:
 # ==========================================
 VOCAB_FILE = "vocab_book.json"
 GRAMMAR_FILE = "grammar_stats.json"
+STORY_FILE = "story_book.json" # Added STORY_FILE based on context, user snippet had it
 KEY_FILE = "api_key.txt"
 
 # ==========================================
@@ -71,6 +72,7 @@ def inject_custom_css():
         .leaderboard-box { background-color: #fff3e0 !important; padding: 10px; border-radius: 8px; border: 1px solid #ffcc80; margin-bottom: 15px; color: #e65100 !important; }
         .ai-feedback-box { background-color: #f1f8e9 !important; border-left: 5px solid #8bc34a; padding: 15px; border-radius: 10px; color: #33691e !important; margin-top: 20px;}
         .diff-box { background-color: #ffffff !important; border: 2px dashed #bdc3c7; padding: 15px; border-radius: 10px; font-size: 18px; color: #333333 !important; }
+        .story-text-large { font-size: 28px !important; font-family: 'Georgia', serif; color: #1a237e; line-height: 1.6; padding: 15px; background-color: #e8eaf6; border-radius: 8px; margin-bottom: 20px; white-space: pre-wrap;}
         div.stButton > button { width: 100%; border-radius: 8px; height: 3em; font-weight: bold; }
         </style>
     """, unsafe_allow_html=True)
@@ -102,6 +104,37 @@ def load_vocab():
 def save_vocab_to_disk(vocab_list):
     with open(VOCAB_FILE, "w", encoding="utf-8") as f:
         json.dump(vocab_list, f, ensure_ascii=False, indent=4)
+
+def load_stories():
+    if not os.path.exists(STORY_FILE): return []
+    try:
+        with open(STORY_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except: return []
+
+def save_story_to_disk(content, explanation=None):
+    stories = load_stories()
+    for s in stories:
+        if s["content"] == content:
+            if explanation and not s.get("explanation"):
+                s["explanation"] = explanation
+                with open(STORY_FILE, "w", encoding="utf-8") as f:
+                    json.dump(stories, f, ensure_ascii=False, indent=4)
+                return "UPDATED"
+            return False
+    
+    title = content[:20] + "..." if len(content) > 20 else content
+    new_story = {
+        "id": str(uuid.uuid4()),
+        "date": time.strftime("%Y-%m-%d %H:%M"),
+        "title": title,
+        "content": content,
+        "explanation": explanation
+    }
+    stories.insert(0, new_story)
+    with open(STORY_FILE, "w", encoding="utf-8") as f:
+        json.dump(stories, f, ensure_ascii=False, indent=4)
+    return True
 
 def add_word_to_vocab(word, info):
     if not word or "查詢失敗" in info or "請輸入 API Key" in info or "Exception" in info: return False
@@ -139,12 +172,10 @@ def increment_pronunciation_error(target_word):
 def restore_pronunciation_data(data_list):
     vocab_list = load_vocab()
     vocab_dict = {v['word']: v for v in vocab_list}
-    
     count = 0
     for item in data_list:
         word = item.get('word')
         errors = item.get('pronunciation_errors', 0)
-        
         if word:
             if word in vocab_dict:
                 vocab_dict[word]['pronunciation_errors'] = errors
@@ -159,7 +190,6 @@ def restore_pronunciation_data(data_list):
                 vocab_list.append(new_item)
                 vocab_dict[word] = new_item
                 count += 1
-    
     save_vocab_to_disk(vocab_list)
     return count
 
@@ -244,29 +274,44 @@ def handle_ai_error(e, model_name):
     elif "404" in err_str: return f"❌ 找不到模型 {model_name} (404)。請嘗試使用自動偵測的模型。"
     else: return f"❌ AI 發生錯誤: {err_str}"
 
-def get_ai_coach_feedback(api_key, model_name, target_text, user_text, score):
+# [修改] 評分教練函數：優化 Prompt，要求正面鼓勵但精準糾錯
+def get_ai_coach_feedback(api_key, model_name, target_text, user_text, score, pitch_correlation):
     if not api_key: return "⚠️ 請在側邊欄輸入 Google API Key"
+    
+    # 根據語調相關性給出提示
+    intonation_hint = ""
+    if pitch_correlation < -0.2:
+        intonation_hint = "⚠️ 語調趨勢與原句相反 (該上揚卻下降，或反之)。"
+    elif pitch_correlation > 0.6:
+        intonation_hint = "✅ 語調起伏非常自然，跟原句很像。"
+    else:
+        intonation_hint = "語調稍顯平淡，起伏不夠明顯。"
+
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel(model_name)
         prompt = f"""
-        你是一位溫暖的英文老師。
+        你是一位溫暖、正向但專業的英文發音教練。
+        
         目標句子："{target_text}"
         學生唸出："{user_text}"
-        分數：{score:.0f}
+        綜合分數：{score:.0f} (滿分100)
+        語調分析：{intonation_hint}
         
-        請給予繁體中文回饋：
-        1. 🌟 亮點讚賞
-        2. 🔧 具體發音糾正。
-           **重要規則**：針對字尾的 'd' 或 't'，若因連讀(linking)或弱化(stop sound)而不清楚，視為正確。若學生將字尾 d/t 發得太重、太分離，請提醒：「字尾 d/t 試著輕一點或連讀，不要太用力」。
-        3. 💪 暖心鼓勵
+        請用繁體中文給予回饋，請遵守以下原則：
+        1. **正面鼓勵 (Positive reinforcement)**：開頭請先肯定學生的嘗試，找出亮點（例如語速、清晰度或努力）。
+        2. **精準糾錯 (Constructive correction)**：
+           - 如果有發音錯誤的字，請溫柔地指出來。
+           - **重點**：若語調分析顯示「相反」或「平淡」，請明確指出（例如：「這句結尾是上揚的，試著把音調拉高一點」），不要為了正面而忽略錯誤。
+        3. **結尾打氣**：給一句鼓勵的話，讓學生想再試一次。
+        
+        請保持回饋簡潔有力，不要長篇大論。
         """
         responses = model.generate_content(prompt, stream=False)
         return responses.text
     except Exception as e:
         return handle_ai_error(e, model_name)
 
-# [新增功能] AI 老師全文講解 (針對 "Full Text Review")
 def get_ai_text_explanation(api_key, model_name, text):
     if not api_key: return "⚠️ 請先輸入 API Key。"
     try:
@@ -279,12 +324,22 @@ def get_ai_text_explanation(api_key, model_name, text):
         請針對以下這篇英文短文：
         "{text}"
         
-        完成以下教學任務：
-        1. 【全文翻譯】：提供通順的繁體中文翻譯。
-        2. 【文法與句型小教室】：挑選文中 2-3 個重要的句型或文法點，用最簡單、像是在聊天的方式解釋給初學者聽。不要用太艱澀的術語。
+        請依照以下順序進行教學 (請用繁體中文)：
+        
+        ### 1. 📝 全文翻譯 (Translation)
+        - **請務必最先提供**通順自然的繁體中文翻譯，讓學生先看懂文章在說什麼。
+        
+        ### 2. 📖 文章脈絡與架構 (Structure & Context)
+        - 簡單說明這篇文章的主題、場景設定，以及故事發展的邏輯 (例如：開頭介紹了什麼，中間發生了什麼，最後結果如何)。
+        
+        ### 3. 🔑 重點句型分析 (Key Sentence Patterns)
+        - 挑選文中 2-3 個最實用的「句型結構」進行解說 (例如：It is... to..., There is..., Subject + Verb + Object)。
+        - 說明這個句型的架構，以及通常用在什麼情況。
+        
+        ### 4. 📚 文法小教室 (Grammar Points)
+        - 解析文中的時態 (Tense)、介系詞 (Prepositions) 或其他文法細節。
         
         請保持排版清晰，適當使用 Emoji，讓學習過程感覺輕鬆愉快。
-        請直接用繁體中文回答。
         """
         response = model.generate_content(prompt, stream=False)
         return response.text
@@ -574,6 +629,7 @@ def check_similarity_visual(target, user_text):
         elif tag == 'insert': html_parts.append(f'<span style="color:gray;font-style:italic;">{u_segment}</span>')
     return score, " ".join(html_parts)
 
+# [修改] 更新為回傳相關係數 (Correlation Coefficient)
 def plot_and_get_trend(teacher_path, student_path):
     if not HAS_LIBROSA: return None, 0, 0
     try:
@@ -591,13 +647,19 @@ def plot_and_get_trend(teacher_path, student_path):
         if len(norm_t) == 0 or len(norm_s) == 0: return None, 0, 0
         from scipy.signal import resample
         norm_s_res = resample(norm_s, len(norm_t))
-        raw_pitch_score = max(0, np.corrcoef(norm_t, norm_s_res)[0, 1]) * 100
+        
+        # [修改] 計算相關係數 (Correlation) -1 到 1
+        correlation = np.corrcoef(norm_t, norm_s_res)[0, 1]
+        
+        # 為了相容原本的 fig 繪圖，我們還是畫出來
+        import matplotlib.pyplot as plt
         fig, ax = plt.subplots(figsize=(8, 2))
         ax.plot(norm_t, label='Teacher', color='#42a5f5', linewidth=2)
         ax.plot(norm_s_res, label='You', color='#ffa726', linestyle='--', linewidth=2)
         ax.axis('off')
         plt.close(fig)
-        return fig, raw_pitch_score, 0
+        
+        return fig, correlation, 0 # 回傳相關係數
     except: return None, 0, 0
 
 def create_backup_zip():
@@ -711,6 +773,9 @@ if 'pronounce_data' not in st.session_state: st.session_state.pronounce_data = N
 if 'pronounce_attempts' not in st.session_state: st.session_state.pronounce_attempts = 0
 if 'pronounce_feedback' not in st.session_state: st.session_state.pronounce_feedback = ""
 if 'pronounce_report' not in st.session_state: st.session_state.pronounce_report = None
+# [AI 老師講解 Persistence]
+if 'full_text_explanation' not in st.session_state: st.session_state.full_text_explanation = None
+
 # [新增] 錄音組件的動態 Key
 if 'pronounce_rec_key' not in st.session_state: st.session_state.pronounce_rec_key = 0
 
@@ -719,7 +784,7 @@ if 'saved_api_key' not in st.session_state:
         with open(KEY_FILE, "r") as f: st.session_state.saved_api_key = f.read().strip()
     else: st.session_state.saved_api_key = ""
 
-# --- 側邊欄 ---
+# --- 側邊欄 (修正版：允許手動輸入模型) ---
 with st.sidebar:
     st.title("⚙️ 設定")
     google_api_key = st.text_input("🔑 Google API Key", value=st.session_state.saved_api_key, type="password")
@@ -728,26 +793,41 @@ with st.sidebar:
         st.session_state.saved_api_key = google_api_key
         st.session_state.available_models = []
 
-    selected_model = "gemini-1.5-flash"
     if google_api_key:
+        # 1. 嘗試抓取可用模型
         if not st.session_state.available_models:
             try:
                 genai.configure(api_key=google_api_key)
                 all_models = list(genai.list_models())
                 st.session_state.available_models = [m.name.replace("models/", "") for m in all_models if "generateContent" in m.supported_generation_methods]
-            except: pass
+                st.session_state.available_models.sort()
+            except:
+                # 萬一抓不到，至少給幾個備選
+                st.session_state.available_models = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-1.5-pro"]
         
+        # 2. 顯示下拉選單
         if st.session_state.available_models:
-            default_idx = 0
-            for i, name in enumerate(st.session_state.available_models):
-                if "1.5-flash" in name: 
-                    default_idx = i
-                    if "latest" in name: break
-            st.success(f"✅ 已偵測到可用模型")
-            selected_model = st.selectbox("🤖 選擇 AI 模型", st.session_state.available_models, index=default_idx)
+            try:
+                # 試著預選 flash
+                default_idx = 0
+                for i, m in enumerate(st.session_state.available_models):
+                    if "flash" in m and "exp" not in m: default_idx = i; break
+                
+                selected_model_drop = st.selectbox("🤖 選擇 AI 模型", st.session_state.available_models, index=default_idx)
+            except:
+                selected_model_drop = st.selectbox("🤖 選擇 AI 模型", st.session_state.available_models)
         else:
-            st.warning("無法自動偵測，請確認 Key")
-            selected_model = st.text_input("手動輸入模型", "gemini-1.5-flash-latest")
+            selected_model_drop = "gemini-1.5-flash"
+
+        # 3. 手動輸入功能 (解決 API 額度誤判或選單缺失問題)
+        use_manual = st.checkbox("📝 手動輸入模型名稱 (若選單無法使用請勾選)")
+        if use_manual:
+            selected_model = st.text_input("手動輸入模型", value="gemini-1.5-flash-8b")
+            st.caption("💡 建議嘗試：`gemini-1.5-flash-8b` 或 `gemini-1.5-pro` (付費帳號請用這些)")
+        else:
+            selected_model = selected_model_drop
+            
+        st.info(f"🚀 當前使用: `{selected_model}`")
     else:
         st.warning("👉 請輸入 API Key 才能使用 AI 功能。")
     
@@ -767,6 +847,7 @@ with st.sidebar:
         st.session_state.pronounce_attempts = 0
         st.session_state.pronounce_feedback = ""
         st.session_state.pronounce_report = None
+        st.session_state.full_text_explanation = None # 重置講解
         # 如果切換模式，也要重置跟讀狀態
         st.session_state.game_active = False
         st.session_state.last_app_mode = app_mode
@@ -779,6 +860,31 @@ with st.sidebar:
         tts_mode = "☁️ 線上 (Google)"
     voice_speed = st.slider("語速", 0.5, 1.5, 1.0, 0.1)
     
+    # [新增] 儲存的短文列表 (包含載入筆記)
+    st.markdown("---")
+    with st.expander("📂 已儲存的短文 (Storybook)", expanded=False):
+        saved_stories = load_stories()
+        if saved_stories:
+            for s in saved_stories:
+                if st.button(f"📖 {s['title']} ({s['date']})", key=s['id'], use_container_width=True):
+                    # 載入故事到跟讀模式
+                    s_split = split_text_smartly(s['content'])
+                    if s_split:
+                        st.session_state.sentences = s_split
+                        st.session_state.current_index = 0
+                        st.session_state.game_active = True
+                        st.session_state.is_finished = False
+                        st.session_state.start_time = time.time()
+                        st.session_state.segment_times = {}
+                        
+                        # [關鍵修改] 載入筆記
+                        st.session_state.full_text_explanation = s.get("explanation")
+                        
+                        # 強制跳轉到跟讀模式
+                        st.toast("📖 已載入短文與筆記！請切換到「🤖 AI 自動生成短文跟讀」或「📖 跟讀練習」開始練習。")
+        else:
+            st.caption("尚未儲存任何短文。")
+
     if st.session_state.segment_times:
         st.markdown("---")
         st.markdown("### ⏱️ 練習時間統計")
@@ -903,6 +1009,7 @@ B: Yes, next to the bank."""
                 st.session_state.is_finished = False
                 st.session_state.start_time = time.time()
                 st.session_state.segment_times = {}
+                st.session_state.full_text_explanation = None
                 st.rerun()
     else:
         # --- 這裡開始是跟讀練習的核心邏輯 (Mode A 和 Mode G 共用) ---
@@ -973,14 +1080,31 @@ B: Yes, next to the bank."""
             display_text = target_sentence.replace("🌟 Full Text Review: ", "")
             st.markdown(f'<div class="reading-box">{display_text}</div>', unsafe_allow_html=True)
             
-            # [新增功能] 針對全文連讀區塊的 AI 老師講解功能
+            # [新增功能] 針對全文連讀區塊的 AI 老師講解功能 + 儲存按鈕
             if "Full Text Review" in target_sentence:
                 st.markdown("---")
-                if st.button("👩‍🏫 請 AI 老師翻譯並講解重點 (初學者模式)"):
-                     with st.spinner("👩‍🏫 AI 老師正在分析，準備翻譯與文法筆記..."):
-                        explanation = get_ai_text_explanation(google_api_key, selected_model, display_text)
-                        st.success("AI 老師講解完成！")
-                        st.markdown(explanation)
+                c_ai, c_save = st.columns([2, 1])
+                
+                with c_ai:
+                    if st.button("👩‍🏫 請 AI 老師翻譯並講解重點 (初學者模式)"):
+                        with st.spinner("👩‍🏫 AI 老師正在分析架構、句型與文法，請稍候..."):
+                            explanation = get_ai_text_explanation(google_api_key, selected_model, display_text)
+                            st.session_state.full_text_explanation = explanation # 存入 State
+                            st.success("分析完成！")
+                
+                with c_save:
+                    if st.button("💾 儲存這篇短文 (含筆記)", type="secondary"):
+                        result = save_story_to_disk(display_text, st.session_state.full_text_explanation)
+                        if result == "UPDATED": st.toast("✅ 已更新筆記到現有存檔！")
+                        elif result: st.toast("✅ 短文與筆記已儲存！")
+                        else: st.toast("⚠️ 已經存過囉！")
+
+                # 如果 State 中有講解，則顯示 (包含大字體原文)
+                if st.session_state.full_text_explanation:
+                    st.markdown("---")
+                    st.markdown(f'<div class="story-text-large">{display_text}</div>', unsafe_allow_html=True)
+                    st.markdown(st.session_state.full_text_explanation)
+                    
                 st.markdown("---")
 
             st.caption("👇 點擊查單字 (需輸入 API Key)：")
@@ -1046,12 +1170,31 @@ B: Yes, next to the bank."""
                     
                     u_text = transcribe_audio(user_path)
                     score_text, diff_html = check_similarity_visual(display_text, u_text)
-                    fig, raw_pitch_score, _ = plot_and_get_trend(st.session_state.current_audio_path, user_path)
+                    fig, raw_pitch_score, correlation = plot_and_get_trend(st.session_state.current_audio_path, user_path) # Changed to get correlation
                     
-                    adj_pitch = max(60, raw_pitch_score)
-                    final_score = (score_text * 0.8) + (adj_pitch * 0.2)
+                    # [評分邏輯修改]
+                    # 1. 文字正確度 (75%)
+                    base_score = score_text * 0.75
+                    
+                    # 2. 語調 (25%)
+                    # raw_pitch_score 在原本的函數中是 0-100。這裡我們改用 correlation 來計算。
+                    # correlation 範圍 -1 到 1
+                    # 如果 correlation > 0, 則為正相關。分數 = correlation * 100 * 0.25 ?
+                    # 原本的 raw_pitch_score = max(0, correlation) * 100
+                    
+                    intonation_score = (raw_pitch_score / 100) * 25
+                    
+                    # 3. 倒扣機制 (趨勢相反)
+                    penalty = 0
+                    if correlation < -0.2: # 負相關，趨勢相反
+                        penalty = 5
+                    
+                    final_score = base_score + intonation_score - penalty
+                    final_score = max(0, min(100, final_score)) # 確保在 0-100 之間
+
                     # 使用選擇的模型
-                    feedback = get_ai_coach_feedback(google_api_key, selected_model, display_text, u_text, final_score)
+                    # 傳入 correlation 以供 AI 判斷語調
+                    feedback = get_ai_coach_feedback(google_api_key, selected_model, display_text, u_text, final_score, correlation)
 
                 if final_score >= 80: st.success(f"🎉 分數：{final_score:.0f}")
                 else: st.info(f"💪 分數：{final_score:.0f}")
@@ -1625,6 +1768,7 @@ elif app_mode == "🤖 AI 自動生成短文跟讀":
                                 st.session_state.is_finished = False
                                 st.session_state.start_time = time.time()
                                 st.session_state.segment_times = {}
+                                st.session_state.full_text_explanation = None # 新短文清空講解
                                 st.rerun()
                             else:
                                 st.error("生成的文章無法分段，請重試。")
@@ -1700,14 +1844,33 @@ elif app_mode == "🤖 AI 自動生成短文跟讀":
                 display_text = target_sentence.replace("🌟 Full Text Review: ", "")
                 st.markdown(f'<div class="reading-box">{display_text}</div>', unsafe_allow_html=True)
                 
-                # [新增功能] 針對全文連讀區塊的 AI 老師講解功能
+                # [新增功能] 針對全文連讀區塊的 AI 老師講解功能 + 儲存
                 if "Full Text Review" in target_sentence:
                     st.markdown("---")
-                    if st.button("👩‍🏫 請 AI 老師翻譯並講解重點 (初學者模式)", key="g_full_text_explain_btn"):
-                        with st.spinner("👩‍🏫 AI 老師正在分析，準備翻譯與文法筆記..."):
-                            explanation = get_ai_text_explanation(google_api_key, selected_model, display_text)
-                            st.success("AI 老師講解完成！")
-                            st.markdown(explanation)
+                    c_ai, c_save = st.columns([2, 1])
+                    
+                    with c_ai:
+                        if st.button("👩‍🏫 請 AI 老師翻譯並講解重點 (初學者模式)", key="g_full_text_explain_btn"):
+                            with st.spinner("👩‍🏫 AI 老師正在分析架構、句型與文法，請稍候..."):
+                                explanation = get_ai_text_explanation(google_api_key, selected_model, display_text)
+                                st.session_state.full_text_explanation = explanation
+                                st.success("分析完成！")
+                    
+                    with c_save:
+                        # [修改] 儲存時同時傳入 explanation
+                        if st.button("💾 儲存這篇短文 (含筆記)", type="secondary", key="g_save_story_btn"):
+                            result = save_story_to_disk(display_text, st.session_state.full_text_explanation)
+                            if result == "UPDATED": st.toast("✅ 已更新筆記到現有存檔！")
+                            elif result: st.toast("✅ 短文與筆記已儲存！")
+                            else: st.toast("⚠️ 已經存過囉！")
+                    
+                    # 顯示 AI 講解 (持續存在)
+                    if st.session_state.full_text_explanation:
+                        st.markdown("---")
+                        # 顯示大字體原文
+                        st.markdown(f'<div class="story-text-large">{display_text}</div>', unsafe_allow_html=True)
+                        st.markdown(st.session_state.full_text_explanation)
+
                     st.markdown("---")
 
                 # 單字查詢 (複製自 Mode A)
@@ -1767,12 +1930,35 @@ elif app_mode == "🤖 AI 自動生成短文跟讀":
                             tmp.write(user_audio.read()); user_path = tmp.name
                         
                         u_text = transcribe_audio(user_path)
+                        # [修改] 評分邏輯
                         score_text, diff_html = check_similarity_visual(display_text, u_text)
-                        fig, raw_pitch_score, _ = plot_and_get_trend(st.session_state.current_audio_path, user_path)
+                        fig, raw_pitch_score, correlation = plot_and_get_trend(st.session_state.current_audio_path, user_path) # 使用 correlation
                         
-                        adj_pitch = max(60, raw_pitch_score)
-                        final_score = (score_text * 0.8) + (adj_pitch * 0.2)
-                        feedback = get_ai_coach_feedback(google_api_key, selected_model, display_text, u_text, final_score)
+                        # 1. 文字分數 (75%)
+                        base_score = score_text * 0.75
+                        
+                        # 2. 語調分數 (25%) - correlation > 0.5 給滿分
+                        intonation_score = 0
+                        pitch_status = "平淡"
+                        if correlation > 0.5: 
+                            intonation_score = 25
+                            pitch_status = "自然流暢"
+                        elif correlation > 0:
+                            intonation_score = correlation * 50 # 0.5 -> 25
+                            pitch_status = "尚可"
+                        else:
+                            pitch_status = "平淡或相反"
+                        
+                        # 3. 倒扣機制
+                        penalty = 0
+                        if correlation < -0.2: 
+                            penalty = 5
+                            pitch_status = "⚠️ 語調升降相反 (扣5分)"
+                        
+                        final_score = base_score + intonation_score - penalty
+                        final_score = max(0, min(100, final_score))
+                        
+                        feedback = get_ai_coach_feedback(google_api_key, selected_model, display_text, u_text, final_score, pitch_status)
 
                     if final_score >= 80: st.success(f"🎉 分數：{final_score:.0f}")
                     else: st.info(f"💪 分數：{final_score:.0f}")

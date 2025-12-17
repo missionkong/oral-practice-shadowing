@@ -1,9 +1,7 @@
 streamlit
 SpeechRecognition
 gTTS
-google-generativeai
-numpy
-matplotlib
-scipy
 librosa
-requests
+matplotlib
+numpy
+scipy
