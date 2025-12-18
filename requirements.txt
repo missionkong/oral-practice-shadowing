@@ -5,3 +5,4 @@ librosa
 matplotlib
 numpy
 scipy
+google-generativeai
